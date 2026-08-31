@@ -3,9 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <title>Value Cabs - Leads Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
 <style>
   body { font-family: Arial, sans-serif; background: #f4f5f7; margin: 0; padding: 20px; }
   h1 { color: #222; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 2px solid #ddd; }
+  .tab-btn {
+    padding: 10px 18px; border: none; background: none; cursor: pointer;
+    font-size: 14px; font-weight: bold; color: #777; border-bottom: 3px solid transparent;
+  }
+  .tab-btn.active { color: #2563eb; border-bottom-color: #2563eb; }
   .toolbar { margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .toolbar select, .toolbar input {
     padding: 8px; border-radius: 6px; border: 1px solid #ccc;
@@ -19,7 +26,7 @@
   .btn-secondary:hover { background: #333; }
   .btn-cancel { background: #999; }
   .btn-cancel:hover { background: #777; }
-  .btn-small { padding: 6px 12px; font-size: 13px; }
+  .btn-small { padding: 6px 12px; font-size: 13px; margin-right: 4px; }
   .btn-whatsapp { background: #25D366; }
   .btn-whatsapp:hover { background: #1da851; }
   .btn-email { background: #ea4335; }
@@ -32,9 +39,9 @@
     text-align: left; font-size: 11px; text-transform: uppercase; color: #888;
     padding: 10px 14px; border-bottom: 2px solid #eee; background: #fafafa;
   }
-  tbody td { padding: 12px 14px; font-size: 14px; border-bottom: 1px solid #f0f0f0; }
-  tbody tr { cursor: pointer; border-left: 6px solid transparent; }
-  tbody tr:hover { background: #f9fafb; }
+  tbody td { padding: 12px 14px; font-size: 14px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+  tbody tr.lead-row { cursor: pointer; border-left: 6px solid transparent; }
+  tbody tr.lead-row:hover { background: #f9fafb; }
   .status-badge {
     padding: 3px 10px; border-radius: 12px; font-size: 12px; color: white; font-weight: bold; display: inline-block;
   }
@@ -79,45 +86,77 @@
   .log-time { color: #999; font-size: 11px; }
   .comment-box { display: flex; gap: 8px; margin-top: 8px; }
   .comment-box input { flex: 1; }
+
+  #calendarEl { background: white; padding: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
 </style>
 </head>
 <body>
 
 <h1>Value Cabs — Leads Dashboard</h1>
 
-<div class="toolbar">
-  <select id="statusFilter">
-    <option value="">All Statuses</option>
-    <option value="New">New</option>
-    <option value="Engaging">Engaging</option>
-    <option value="Leads with Licence">Leads with Licence</option>
-    <option value="Retarget">Retarget</option>
-    <option value="Leads with no licence">Leads with no licence</option>
-    <option value="Dead Lead-Opt Out">Dead Lead-Opt Out</option>
-    <option value="Blacklist">Blacklist</option>
-    <option value="Active">Active</option>
-  </select>
-  <input type="text" id="searchBox" placeholder="Search name, phone, or email...">
-  <button class="btn" onclick="openChoiceModal()">+ Add Lead</button>
-  <button class="btn btn-secondary" onclick="loadLeads()">Refresh</button>
+<div class="tabs">
+  <button class="tab-btn active" id="tabBtn_leads" onclick="showTab('leads')">Leads</button>
+  <button class="tab-btn" id="tabBtn_calendar" onclick="showTab('calendar')">Calendar</button>
+  <button class="tab-btn" id="tabBtn_calls" onclick="showTab('calls')">Calls Due Today</button>
 </div>
 
-<div id="loading">Loading leads...</div>
+<!-- LEADS TAB -->
+<div id="leadsSection">
+  <div class="toolbar">
+    <select id="statusFilter">
+      <option value="">All Statuses</option>
+      <option value="New">New</option>
+      <option value="Engaging">Engaging</option>
+      <option value="Leads with Licence">Leads with Licence</option>
+      <option value="Retarget">Retarget</option>
+      <option value="Leads with no licence">Leads with no licence</option>
+      <option value="Dead Lead-Opt Out">Dead Lead-Opt Out</option>
+      <option value="Blacklist">Blacklist</option>
+      <option value="Active">Active</option>
+    </select>
+    <input type="text" id="searchBox" placeholder="Search name, phone, or email...">
+    <button class="btn" onclick="openChoiceModal()">+ Add Lead</button>
+    <button class="btn btn-secondary" onclick="loadLeads()">Refresh</button>
+  </div>
 
-<table id="leadsTable" style="display:none;">
-  <thead>
-    <tr>
-      <th>Driver Name</th>
-      <th>Contact Number</th>
-      <th>Email</th>
-      <th>Stage</th>
-      <th>Source</th>
-      <th>Status</th>
-    </tr>
-  </thead>
-  <tbody id="leadsBody"></tbody>
-</table>
-<p id="noResults" style="display:none;">No leads found.</p>
+  <div id="loading">Loading leads...</div>
+
+  <table id="leadsTable" style="display:none;">
+    <thead>
+      <tr>
+        <th>Driver Name</th>
+        <th>Contact Number</th>
+        <th>Email</th>
+        <th>Stage</th>
+        <th>Source</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody id="leadsBody"></tbody>
+  </table>
+  <p id="noResults" style="display:none;">No leads found.</p>
+</div>
+
+<!-- CALENDAR TAB -->
+<div id="calendarSection" style="display:none;">
+  <div id="calendarEl"></div>
+</div>
+
+<!-- CALLS DUE TODAY TAB -->
+<div id="callsSection" style="display:none;">
+  <table id="callsTable" style="display:none;">
+    <thead>
+      <tr>
+        <th>Driver Name</th>
+        <th>Contact Number</th>
+        <th>Reason</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="callsBody"></tbody>
+  </table>
+  <p id="noCallsToday" style="display:none;">No calls due today.</p>
+</div>
 
 <!-- Choice Modal -->
 <div class="modal-overlay" id="choiceModal">
@@ -200,6 +239,21 @@
   </div>
 </div>
 
+<!-- Add Reminder Modal -->
+<div class="modal-overlay" id="reminderModal">
+  <div class="modal-box">
+    <h2>Add Reminder</h2>
+    <label>Date</label>
+    <input type="date" id="r_date">
+    <label>Note / Reason</label>
+    <input type="text" id="r_note" placeholder="e.g. Follow up on theory test result">
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="closeReminderModal()">Cancel</button>
+      <button class="btn" onclick="submitReminder()">Save Reminder</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // PASTE YOUR APPS SCRIPT WEB APP URL BETWEEN THE QUOTES BELOW
 const API_URL = "https://script.google.com/macros/s/AKfycbzDzVeFRU14JUtD8IMJdfZGpheEK6Ovf8Db-URwGaIznM0DlBoYkjG3O3QcscPbgHtl/exec";
@@ -216,13 +270,41 @@ const stageOptions = ["1st Contact Made","Meet and Greet Arranged","Meet and Gre
   "Medical Booked","Medical Passed","Access NI Complete","Flagged for Review","All Stages Completed"];
 
 let allLeads = [];
+let allReminders = [];
 let currentDetailId = null;
+let currentDetailName = "";
+let calendar = null;
 
-// Helper: safely convert any value to a clean text string, even if it's a number, blank, or missing
 function safeText(val) {
   if (val === null || val === undefined) return "";
   return String(val);
 }
+
+// Local (not UTC) date string, to avoid timezone mismatches near midnight
+function getTodayLocalString() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return y + "-" + m + "-" + day;
+}
+
+// ---------- TABS ----------
+
+function showTab(tab) {
+  document.getElementById("leadsSection").style.display = tab === "leads" ? "block" : "none";
+  document.getElementById("calendarSection").style.display = tab === "calendar" ? "block" : "none";
+  document.getElementById("callsSection").style.display = tab === "calls" ? "block" : "none";
+
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+  document.getElementById("tabBtn_" + tab).classList.add("active");
+
+  if (tab === "calendar" && calendar) {
+    calendar.updateSize();
+  }
+}
+
+// ---------- LEADS ----------
 
 function loadLeads() {
   document.getElementById("loading").style.display = "block";
@@ -267,6 +349,7 @@ function renderLeads() {
   filtered.forEach(lead => {
     const color = statusColors[lead.Status] || "#cccccc";
     const tr = document.createElement("tr");
+    tr.className = "lead-row";
     tr.style.borderLeftColor = color;
     tr.innerHTML = `
       <td>${safeText(lead.DriverName) || "(No name)"}</td>
@@ -331,6 +414,7 @@ function openDetail(id) {
         document.getElementById("detailContent").innerHTML = "Error: " + data.error;
         return;
       }
+      currentDetailName = safeText(data.lead.DriverName);
       renderDetail(data.lead, data.history, data.comments);
     })
     .catch(err => {
@@ -374,7 +458,7 @@ function renderDetail(lead, history, comments) {
       <button class="btn btn-small" onclick="saveDetailChanges()">Save Changes</button>
       <button class="btn btn-small btn-email" onclick="sendEmail()">✉ Email</button>
       <button class="btn btn-small btn-whatsapp" onclick="sendWhatsApp()">💬 WhatsApp</button>
-      <button class="btn btn-small btn-reminder" onclick="alert('Calendar reminder feature is built in a later step.')">⏰ Add Reminder</button>
+      <button class="btn btn-small btn-reminder" onclick="openReminderModal()">⏰ Add Reminder</button>
     </div>
 
     <div class="collapsible-header" onclick="toggleCollapse('commentsBody')">
@@ -461,10 +545,171 @@ function sendWhatsApp() {
   window.open("https://wa.me/" + phone, "_blank");
 }
 
+// ---------- REMINDERS ----------
+
+function openReminderModal() { document.getElementById("reminderModal").style.display = "flex"; }
+function closeReminderModal() { document.getElementById("reminderModal").style.display = "none"; }
+
+function submitReminder() {
+  const date = document.getElementById("r_date").value;
+  const note = document.getElementById("r_note").value.trim();
+  if (!date) { alert("Please pick a date."); return; }
+
+  fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({
+      action: "addReminder",
+      LeadID: currentDetailId,
+      DriverName: currentDetailName,
+      Date: date,
+      Note: note
+    })
+  })
+  .then(res => res.json())
+  .then(result => {
+    if (result.success) {
+      closeReminderModal();
+      document.getElementById("r_date").value = "";
+      document.getElementById("r_note").value = "";
+      loadReminders();
+      alert("Reminder added.");
+    } else {
+      alert("Error adding reminder: " + (result.error || "Unknown error"));
+    }
+  })
+  .catch(err => alert("Network error: " + err));
+}
+
+function loadReminders() {
+  fetch(API_URL + "?action=getReminders")
+    .then(res => res.json())
+    .then(data => {
+      allReminders = data.reminders || [];
+      renderCalendar();
+      renderCallsToday();
+    })
+    .catch(err => { console.error("Error loading reminders: " + err); });
+}
+
+function renderCalendar() {
+  const events = allReminders.map(r => ({
+    id: r.ReminderID,
+    title: safeText(r.DriverName) + ": " + safeText(r.Note),
+    start: safeText(r.Date),
+    backgroundColor: r.Completed === "Yes" ? "#00b050" : "#ea4335",
+    borderColor: r.Completed === "Yes" ? "#00b050" : "#ea4335",
+    extendedProps: { LeadID: r.LeadID, Completed: r.Completed, Note: r.Note }
+  }));
+
+  if (calendar) { calendar.destroy(); }
+
+  calendar = new FullCalendar.Calendar(document.getElementById("calendarEl"), {
+    initialView: "dayGridMonth",
+    height: 650,
+    events: events,
+    eventClick: function(info) {
+      const props = info.event.extendedProps;
+      if (props.Completed === "Yes") {
+        alert("This reminder is already marked complete.");
+        return;
+      }
+      if (confirm("Mark this reminder as complete?\n\n" + info.event.title)) {
+        markReminderComplete(info.event.id, props.LeadID, props.Note);
+      }
+    }
+  });
+  calendar.render();
+}
+
+function markReminderComplete(reminderId, leadId, note) {
+  fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: "completeReminder", ReminderID: reminderId, LeadID: leadId, Note: note })
+  })
+  .then(res => res.json())
+  .then(result => {
+    if (result.success) { loadReminders(); }
+    else { alert("Error: " + (result.error || "Unknown error")); }
+  })
+  .catch(err => alert("Network error: " + err));
+}
+
+function renderCallsToday() {
+  const todayStr = getTodayLocalString();
+  const tbody = document.getElementById("callsBody");
+  tbody.innerHTML = "";
+
+  const dueToday = allReminders.filter(r => safeText(r.Date) === todayStr && r.Completed !== "Yes");
+
+  if (dueToday.length === 0) {
+    document.getElementById("callsTable").style.display = "none";
+    document.getElementById("noCallsToday").style.display = "block";
+    return;
+  }
+  document.getElementById("callsTable").style.display = "table";
+  document.getElementById("noCallsToday").style.display = "none";
+
+  dueToday.forEach(r => {
+    const lead = allLeads.find(l => l.RecordID === r.LeadID);
+    const phone = lead ? safeText(lead.ContactNumber) : "";
+    const email = lead ? safeText(lead.Email) : "";
+
+    const tr = document.createElement("tr");
+
+    const tdName = document.createElement("td");
+    tdName.textContent = safeText(r.DriverName);
+    tr.appendChild(tdName);
+
+    const tdPhone = document.createElement("td");
+    tdPhone.textContent = phone || "-";
+    tr.appendChild(tdPhone);
+
+    const tdNote = document.createElement("td");
+    tdNote.textContent = safeText(r.Note) || "-";
+    tr.appendChild(tdNote);
+
+    const tdActions = document.createElement("td");
+
+    const btnDone = document.createElement("button");
+    btnDone.className = "btn btn-small";
+    btnDone.textContent = "Mark Done";
+    btnDone.onclick = () => markReminderComplete(r.ReminderID, r.LeadID, r.Note);
+    tdActions.appendChild(btnDone);
+
+    if (phone) {
+      const btnWa = document.createElement("button");
+      btnWa.className = "btn btn-small btn-whatsapp";
+      btnWa.textContent = "WhatsApp";
+      btnWa.onclick = () => window.open("https://wa.me/" + phone.replace(/[^0-9]/g, ""), "_blank");
+      tdActions.appendChild(btnWa);
+    }
+
+    if (email) {
+      const btnEm = document.createElement("button");
+      btnEm.className = "btn btn-small btn-email";
+      btnEm.textContent = "Email";
+      btnEm.onclick = () => window.location.href = "mailto:" + email;
+      tdActions.appendChild(btnEm);
+    }
+
+    const btnOpen = document.createElement("button");
+    btnOpen.className = "btn btn-small btn-secondary";
+    btnOpen.textContent = "Open Lead";
+    btnOpen.onclick = () => openDetail(r.LeadID);
+    tdActions.appendChild(btnOpen);
+
+    tr.appendChild(tdActions);
+    tbody.appendChild(tr);
+  });
+}
+
 document.getElementById("statusFilter").addEventListener("change", renderLeads);
 document.getElementById("searchBox").addEventListener("input", renderLeads);
 
 loadLeads();
+loadReminders();
 </script>
 
 </body>
