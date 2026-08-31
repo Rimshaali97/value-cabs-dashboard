@@ -7,7 +7,7 @@
 <style>
   body { font-family: Arial, sans-serif; background: #f4f5f7; margin: 0; padding: 20px; }
   h1 { color: #222; }
-  .tabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 2px solid #ddd; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 2px solid #ddd; flex-wrap: wrap; }
   .tab-btn {
     padding: 10px 18px; border: none; background: none; cursor: pointer;
     font-size: 14px; font-weight: bold; color: #777; border-bottom: 3px solid transparent;
@@ -97,6 +97,16 @@
   #calendarEl { background: white; padding: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
   .reschedule-box { border: 1px dashed #ccc; border-radius: 8px; padding: 12px; margin-top: 12px; display: none; }
   .reschedule-box.open { display: block; }
+
+  /* Reports */
+  .report-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .report-card { background: white; border-radius: 8px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .report-card .num { font-size: 24px; font-weight: bold; color: #222; }
+  .report-card .label { font-size: 12px; color: #888; margin-top: 2px; }
+  .report-section { background: white; border-radius: 8px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .report-section h3 { margin-top: 0; font-size: 15px; }
+  .breakdown-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+  .breakdown-row .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; }
 </style>
 </head>
 <body>
@@ -107,6 +117,7 @@
   <button class="tab-btn active" id="tabBtn_leads" onclick="showTab('leads')">Leads</button>
   <button class="tab-btn" id="tabBtn_calendar" onclick="showTab('calendar')">Calendar</button>
   <button class="tab-btn" id="tabBtn_calls" onclick="showTab('calls')">Calls Due Today</button>
+  <button class="tab-btn" id="tabBtn_reports" onclick="showTab('reports')">Reports</button>
 </div>
 
 <!-- LEADS TAB -->
@@ -166,6 +177,61 @@
     <tbody id="callsBody"></tbody>
   </table>
   <p id="noCallsToday" style="display:none;">No calls due today.</p>
+</div>
+
+<!-- REPORTS TAB -->
+<div id="reportsSection" style="display:none;">
+  <div class="toolbar">
+    <div>
+      <label style="font-size:12px; font-weight:bold; display:block;">From</label>
+      <input type="date" id="rep_startDate">
+    </div>
+    <div>
+      <label style="font-size:12px; font-weight:bold; display:block;">To</label>
+      <input type="date" id="rep_endDate">
+    </div>
+    <button class="btn btn-secondary" onclick="setReportRangeThisMonth()">This Month</button>
+    <button class="btn btn-secondary" onclick="setReportRangeAllTime()">All Time</button>
+    <button class="btn" onclick="generateReport()">Generate Report</button>
+  </div>
+
+  <div id="reportLoading" style="color:#888; margin-bottom:10px;">Set a date range and click Generate Report.</div>
+  <div id="reportContent" style="display:none;">
+
+    <div class="report-cards">
+      <div class="report-card"><div class="num" id="rc_totalLeads">0</div><div class="label">Total Leads (All Time)</div></div>
+      <div class="report-card"><div class="num" id="rc_newInRange">0</div><div class="label">New Leads in Range</div></div>
+      <div class="report-card"><div class="num" id="rc_activityInRange">0</div><div class="label">Activity Logged in Range</div></div>
+      <div class="report-card"><div class="num" id="rc_remindersCompleted">0</div><div class="label">Reminders Completed in Range</div></div>
+    </div>
+
+    <div class="report-section">
+      <h3>Leads by Status (All Time)</h3>
+      <div id="rep_statusBreakdown"></div>
+    </div>
+
+    <div class="report-section">
+      <h3>Leads by Stage (All Time)</h3>
+      <div id="rep_stageBreakdown"></div>
+    </div>
+
+    <div class="report-section">
+      <h3>Leads by Source (All Time)</h3>
+      <div id="rep_sourceBreakdown"></div>
+    </div>
+
+    <div class="report-section">
+      <h3>Activity Breakdown (Selected Range)</h3>
+      <div id="rep_activityBreakdown"></div>
+    </div>
+
+    <div class="report-section">
+      <h3>Download Reports</h3>
+      <button class="btn btn-small" onclick="downloadLeadsCSV()">⬇ Download All Leads (CSV)</button>
+      <button class="btn btn-small" onclick="downloadActivityCSV()">⬇ Download Activity Log for Selected Range (CSV)</button>
+    </div>
+
+  </div>
 </div>
 
 <!-- Choice Modal -->
@@ -272,7 +338,7 @@
   </div>
 </div>
 
-<!-- Reminder Detail / Popup Modal (from calendar, Calls Due Today, or lead detail) -->
+<!-- Reminder Detail / Popup Modal -->
 <div class="modal-overlay" id="reminderDetailModal">
   <div class="modal-box" id="reminderDetailContent">
     Loading...
@@ -296,6 +362,7 @@ const stageOptions = ["1st Contact Made","Meet and Greet Arranged","Meet and Gre
 
 let allLeads = [];
 let allReminders = [];
+let allHistory = [];
 let currentDetailId = null;
 let currentDetailName = "";
 let currentReminderId = null;
@@ -341,12 +408,23 @@ function formatDateTimeReadable(dtStr) {
   return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
 }
 
+// Safely turn any Sheets timestamp value into a plain YYYY-MM-DD string for date-range comparisons
+function toDateOnlyString(val) {
+  const d = new Date(val);
+  if (isNaN(d)) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 // ---------- TABS ----------
 
 function showTab(tab) {
   document.getElementById("leadsSection").style.display = tab === "leads" ? "block" : "none";
   document.getElementById("calendarSection").style.display = tab === "calendar" ? "block" : "none";
   document.getElementById("callsSection").style.display = tab === "calls" ? "block" : "none";
+  document.getElementById("reportsSection").style.display = tab === "reports" ? "block" : "none";
 
   document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
   document.getElementById("tabBtn_" + tab).classList.add("active");
@@ -636,7 +714,7 @@ function sendWhatsApp() {
   window.open("https://wa.me/" + phone, "_blank");
 }
 
-// ---------- ADD REMINDER (from lead detail) ----------
+// ---------- ADD REMINDER ----------
 
 function openReminderModal() { document.getElementById("reminderModal").style.display = "flex"; }
 function closeReminderModal() { document.getElementById("reminderModal").style.display = "none"; }
@@ -768,7 +846,7 @@ function renderCallsToday() {
   });
 }
 
-// ---------- REMINDER DETAIL POPUP (used by Calendar, Calls Due Today, Lead Detail) ----------
+// ---------- REMINDER DETAIL POPUP ----------
 
 function openReminderDetail(reminderId, fromLeadDetail) {
   currentReminderId = reminderId;
@@ -870,9 +948,189 @@ function submitReschedule() {
   .catch(err => alert("Network error: " + err));
 }
 
+// ---------- REPORTS ----------
+
+function setReportRangeThisMonth() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  document.getElementById("rep_startDate").value = toDateOnlyString(start);
+  document.getElementById("rep_endDate").value = toDateOnlyString(end);
+}
+
+function setReportRangeAllTime() {
+  document.getElementById("rep_startDate").value = "2000-01-01";
+  document.getElementById("rep_endDate").value = "2100-01-01";
+}
+
+function loadHistoryForReports(callback) {
+  fetch(API_URL + "?action=getAllHistory")
+    .then(res => res.json())
+    .then(data => {
+      allHistory = data.history || [];
+      if (callback) callback();
+    })
+    .catch(err => { alert("Error loading activity data: " + err); });
+}
+
+function generateReport() {
+  const startStr = document.getElementById("rep_startDate").value;
+  const endStr = document.getElementById("rep_endDate").value;
+  if (!startStr || !endStr) { alert("Please choose both a start and end date."); return; }
+
+  document.getElementById("reportLoading").innerText = "Generating report...";
+  document.getElementById("reportContent").style.display = "none";
+
+  // Make sure we have the latest leads, reminders, and full history before computing
+  Promise.all([
+    fetch(API_URL).then(r => r.json()),
+    fetch(API_URL + "?action=getReminders").then(r => r.json()),
+    fetch(API_URL + "?action=getAllHistory").then(r => r.json())
+  ]).then(([leadsData, remindersData, historyData]) => {
+    allLeads = leadsData.leads || [];
+    allReminders = remindersData.reminders || [];
+    allHistory = historyData.history || [];
+
+    renderReportCards(startStr, endStr);
+    renderStatusBreakdown();
+    renderStageBreakdown();
+    renderSourceBreakdown();
+    renderActivityBreakdown(startStr, endStr);
+
+    document.getElementById("reportLoading").style.display = "none";
+    document.getElementById("reportContent").style.display = "block";
+  }).catch(err => {
+    document.getElementById("reportLoading").innerText = "Error generating report: " + err;
+  });
+}
+
+function renderReportCards(startStr, endStr) {
+  document.getElementById("rc_totalLeads").innerText = allLeads.length;
+
+  const newInRange = allLeads.filter(l => {
+    const d = toDateOnlyString(l.DateAdded);
+    return d >= startStr && d <= endStr;
+  }).length;
+  document.getElementById("rc_newInRange").innerText = newInRange;
+
+  const activityInRange = allHistory.filter(h => {
+    const d = toDateOnlyString(h.Timestamp);
+    return d >= startStr && d <= endStr;
+  }).length;
+  document.getElementById("rc_activityInRange").innerText = activityInRange;
+
+  const remindersCompletedInRange = allHistory.filter(h => {
+    const d = toDateOnlyString(h.Timestamp);
+    return d >= startStr && d <= endStr && h.Type === "Reminder Completed";
+  }).length;
+  document.getElementById("rc_remindersCompleted").innerText = remindersCompletedInRange;
+}
+
+function renderBreakdown(containerId, counts, colorMap) {
+  const container = document.getElementById(containerId);
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) {
+    container.innerHTML = "<p style='color:#999; font-size:13px;'>No data.</p>";
+    return;
+  }
+  container.innerHTML = entries.map(([key, count]) => {
+    const color = colorMap && colorMap[key] ? colorMap[key] : "#999999";
+    return `<div class="breakdown-row"><span><span class="dot" style="background:${color}"></span>${key || "(blank)"}</span><span><strong>${count}</strong></span></div>`;
+  }).join("");
+}
+
+function renderStatusBreakdown() {
+  const counts = {};
+  allLeads.forEach(l => {
+    const s = safeText(l.Status) || "(blank)";
+    counts[s] = (counts[s] || 0) + 1;
+  });
+  renderBreakdown("rep_statusBreakdown", counts, statusColors);
+}
+
+function renderStageBreakdown() {
+  const counts = {};
+  allLeads.forEach(l => {
+    const s = safeText(l.Stage) || "(blank)";
+    counts[s] = (counts[s] || 0) + 1;
+  });
+  renderBreakdown("rep_stageBreakdown", counts, null);
+}
+
+function renderSourceBreakdown() {
+  const counts = {};
+  allLeads.forEach(l => {
+    const s = safeText(l.Source) || "(blank)";
+    counts[s] = (counts[s] || 0) + 1;
+  });
+  renderBreakdown("rep_sourceBreakdown", counts, null);
+}
+
+function renderActivityBreakdown(startStr, endStr) {
+  const counts = {};
+  allHistory.filter(h => {
+    const d = toDateOnlyString(h.Timestamp);
+    return d >= startStr && d <= endStr;
+  }).forEach(h => {
+    const t = safeText(h.Type) || "(blank)";
+    counts[t] = (counts[t] || 0) + 1;
+  });
+  renderBreakdown("rep_activityBreakdown", counts, null);
+}
+
+// ---------- CSV DOWNLOADS ----------
+
+function csvEscape(val) {
+  const str = safeText(val).replace(/"/g, '""');
+  return `"${str}"`;
+}
+
+function downloadCSV(filename, headers, rows) {
+  let csv = headers.map(csvEscape).join(",") + "\n";
+  rows.forEach(row => {
+    csv += row.map(csvEscape).join(",") + "\n";
+  });
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function downloadLeadsCSV() {
+  const headers = ["Driver Name","Contact Number","Email","Status","Stage","Source","PSV Licence","Owns Car","Date Added","Added Method"];
+  const rows = allLeads.map(l => [
+    l.DriverName, l.ContactNumber, l.Email, l.Status, l.Stage, l.Source,
+    l.PSVLicence, l.OwnCar, l.DateAdded ? new Date(l.DateAdded).toLocaleString() : "", l.AddedMethod
+  ]);
+  downloadCSV("leads_report_" + getTodayLocalString() + ".csv", headers, rows);
+}
+
+function downloadActivityCSV() {
+  const startStr = document.getElementById("rep_startDate").value;
+  const endStr = document.getElementById("rep_endDate").value;
+  if (!startStr || !endStr) { alert("Please generate a report first (choose a date range)."); return; }
+
+  const filtered = allHistory.filter(h => {
+    const d = toDateOnlyString(h.Timestamp);
+    return d >= startStr && d <= endStr;
+  }).sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+
+  const headers = ["Timestamp","Driver Name","Type","Detail"];
+  const rows = filtered.map(h => [
+    h.Timestamp ? new Date(h.Timestamp).toLocaleString() : "", h.DriverName, h.Type, h.Detail
+  ]);
+  downloadCSV("activity_report_" + startStr + "_to_" + endStr + ".csv", headers, rows);
+}
+
 document.getElementById("statusFilter").addEventListener("change", renderLeads);
 document.getElementById("searchBox").addEventListener("input", renderLeads);
 
+setReportRangeThisMonth();
 loadLeads();
 loadReminders();
 </script>
