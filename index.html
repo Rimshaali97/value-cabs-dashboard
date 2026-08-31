@@ -26,13 +26,15 @@
   .btn-secondary:hover { background: #333; }
   .btn-cancel { background: #999; }
   .btn-cancel:hover { background: #777; }
-  .btn-small { padding: 6px 12px; font-size: 13px; margin-right: 4px; }
+  .btn-small { padding: 6px 12px; font-size: 13px; margin-right: 4px; margin-top: 4px; }
   .btn-whatsapp { background: #25D366; }
   .btn-whatsapp:hover { background: #1da851; }
   .btn-email { background: #ea4335; }
   .btn-email:hover { background: #c5372b; }
   .btn-reminder { background: #f59e0b; }
   .btn-reminder:hover { background: #d97e06; }
+  .btn-success { background: #00b050; }
+  .btn-success:hover { background: #00913f; }
 
   table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
   thead th {
@@ -60,7 +62,9 @@
   .modal-box input, .modal-box select, .modal-box textarea {
     width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; font-family: inherit;
   }
-  .modal-actions { margin-top: 18px; display: flex; gap: 10px; justify-content: flex-end; }
+  .modal-actions { margin-top: 18px; display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+  .field-row { display: flex; gap: 8px; }
+  .field-row > div { flex: 1; }
 
   .choice-option {
     border: 2px solid #eee; border-radius: 8px; padding: 16px; margin-bottom: 12px;
@@ -72,9 +76,7 @@
   .choice-option.disabled { opacity: 0.5; cursor: not-allowed; }
   .choice-option.disabled:hover { border-color: #eee; background: white; }
 
-  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-bottom: 16px; }
-  .detail-field-label { font-size: 11px; text-transform: uppercase; color: #999; font-weight: bold; }
-  .detail-field-value { font-size: 14px; margin-top: 2px; }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; margin-bottom: 10px; }
   .action-row { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
   .collapsible-header {
     display: flex; justify-content: space-between; align-items: center;
@@ -88,6 +90,8 @@
   .comment-box input { flex: 1; }
 
   #calendarEl { background: white; padding: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .reschedule-box { border: 1px dashed #ccc; border-radius: 8px; padding: 12px; margin-top: 12px; display: none; }
+  .reschedule-box.open { display: block; }
 </style>
 </head>
 <body>
@@ -147,6 +151,7 @@
   <table id="callsTable" style="display:none;">
     <thead>
       <tr>
+        <th>Time</th>
         <th>Driver Name</th>
         <th>Contact Number</th>
         <th>Reason</th>
@@ -239,18 +244,33 @@
   </div>
 </div>
 
-<!-- Add Reminder Modal -->
+<!-- Add Reminder Modal (from lead detail panel) -->
 <div class="modal-overlay" id="reminderModal">
   <div class="modal-box">
     <h2>Add Reminder</h2>
-    <label>Date</label>
-    <input type="date" id="r_date">
+    <div class="field-row">
+      <div>
+        <label>Date</label>
+        <input type="date" id="r_date">
+      </div>
+      <div>
+        <label>Time</label>
+        <input type="time" id="r_time">
+      </div>
+    </div>
     <label>Note / Reason</label>
     <input type="text" id="r_note" placeholder="e.g. Follow up on theory test result">
     <div class="modal-actions">
       <button class="btn btn-cancel" onclick="closeReminderModal()">Cancel</button>
       <button class="btn" onclick="submitReminder()">Save Reminder</button>
     </div>
+  </div>
+</div>
+
+<!-- Reminder Detail / Popup Modal (from calendar or Calls Due Today) -->
+<div class="modal-overlay" id="reminderDetailModal">
+  <div class="modal-box" id="reminderDetailContent">
+    Loading...
   </div>
 </div>
 
@@ -273,6 +293,7 @@ let allLeads = [];
 let allReminders = [];
 let currentDetailId = null;
 let currentDetailName = "";
+let currentReminderId = null;
 let calendar = null;
 
 function safeText(val) {
@@ -280,13 +301,40 @@ function safeText(val) {
   return String(val);
 }
 
-// Local (not UTC) date string, to avoid timezone mismatches near midnight
 function getTodayLocalString() {
   const d = new Date();
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return y + "-" + m + "-" + day;
+}
+
+// Handles both a clean "YYYY-MM-DDTHH:MM" string AND, defensively, cases where
+// Sheets may have still stored/returned it as a real date/time value.
+function normalizeDateTimeStr(val) {
+  const str = safeText(val);
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(str)) return str.substring(0, 16);
+  const d = new Date(str);
+  if (isNaN(d)) return str;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${day}T${hh}:${mm}`;
+}
+
+function splitDateTime(dtStr) {
+  const norm = normalizeDateTimeStr(dtStr);
+  const parts = norm.split("T");
+  return { date: parts[0] || "", time: parts[1] || "" };
+}
+
+function formatDateTimeReadable(dtStr) {
+  const norm = normalizeDateTimeStr(dtStr);
+  const d = new Date(norm);
+  if (isNaN(d)) return dtStr;
+  return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
 }
 
 // ---------- TABS ----------
@@ -299,9 +347,7 @@ function showTab(tab) {
   document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
   document.getElementById("tabBtn_" + tab).classList.add("active");
 
-  if (tab === "calendar" && calendar) {
-    calendar.updateSize();
-  }
+  if (tab === "calendar" && calendar) calendar.updateSize();
 }
 
 // ---------- LEADS ----------
@@ -435,24 +481,45 @@ function renderDetail(lead, history, comments) {
     `<option value="${s}" ${s === lead.Status ? "selected" : ""}>${s}</option>`).join("");
   const stageOptsHtml = stageOptions.map(s =>
     `<option value="${s}" ${s === lead.Stage ? "selected" : ""}>${s}</option>`).join("");
+  const sourceListVals = ["Walk-in","Reception","Website","META","Referral","Other"];
+  const sourceOptsHtml = sourceListVals.map(s =>
+    `<option value="${s}" ${s === lead.Source ? "selected" : ""}>${s}</option>`).join("");
 
   document.getElementById("detailContent").innerHTML = `
-    <h2>${safeText(lead.DriverName) || "(No name)"} <span class="status-badge" style="background:${color}">${safeText(lead.Status)}</span></h2>
+    <h2><span id="d_name_display">${safeText(lead.DriverName) || "(No name)"}</span> <span class="status-badge" style="background:${color}">${safeText(lead.Status)}</span></h2>
+
+    <label>Driver Name</label>
+    <input type="text" id="d_name" value="${safeText(lead.DriverName)}">
 
     <div class="detail-grid">
-      <div><div class="detail-field-label">Contact Number</div><div class="detail-field-value">${safeText(lead.ContactNumber) || "-"}</div></div>
-      <div><div class="detail-field-label">Email</div><div class="detail-field-value">${safeText(lead.Email) || "-"}</div></div>
-      <div><div class="detail-field-label">Source</div><div class="detail-field-value">${safeText(lead.Source) || "-"}</div></div>
-      <div><div class="detail-field-label">Added</div><div class="detail-field-value">${lead.DateAdded ? new Date(lead.DateAdded).toLocaleString() : "-"} (${safeText(lead.AddedMethod) || "-"})</div></div>
-      <div><div class="detail-field-label">PSV Licence</div><div class="detail-field-value">${safeText(lead.PSVLicence) || "-"}</div></div>
-      <div><div class="detail-field-label">Owns Car</div><div class="detail-field-value">${safeText(lead.OwnCar) || "-"}</div></div>
+      <div>
+        <label>Contact Number</label>
+        <input type="text" id="d_phone" value="${safeText(lead.ContactNumber)}">
+      </div>
+      <div>
+        <label>Email</label>
+        <input type="text" id="d_email" value="${safeText(lead.Email)}">
+      </div>
+      <div>
+        <label>PSV Licence (Yes/No)</label>
+        <input type="text" id="d_psv" value="${safeText(lead.PSVLicence)}">
+      </div>
+      <div>
+        <label>Owns Car (Yes/No)</label>
+        <input type="text" id="d_car" value="${safeText(lead.OwnCar)}">
+      </div>
     </div>
+
+    <label>Source</label>
+    <select id="d_source">${sourceOptsHtml}</select>
 
     <label>Status</label>
     <select id="d_status">${statusOptsHtml}</select>
 
     <label>Stage</label>
     <select id="d_stage">${stageOptsHtml}</select>
+
+    <p style="font-size:12px; color:#999; margin-top:10px;">Added ${lead.DateAdded ? new Date(lead.DateAdded).toLocaleString() : "-"} via ${safeText(lead.AddedMethod) || "-"}</p>
 
     <div class="action-row">
       <button class="btn btn-small" onclick="saveDetailChanges()">Save Changes</button>
@@ -498,6 +565,12 @@ function saveDetailChanges() {
   const payload = {
     action: "updateLead",
     RecordID: currentDetailId,
+    DriverName: document.getElementById("d_name").value,
+    ContactNumber: document.getElementById("d_phone").value,
+    Email: document.getElementById("d_email").value,
+    PSVLicence: document.getElementById("d_psv").value,
+    OwnCar: document.getElementById("d_car").value,
+    Source: document.getElementById("d_source").value,
     Status: document.getElementById("d_status").value,
     Stage: document.getElementById("d_stage").value
   };
@@ -545,15 +618,18 @@ function sendWhatsApp() {
   window.open("https://wa.me/" + phone, "_blank");
 }
 
-// ---------- REMINDERS ----------
+// ---------- ADD REMINDER (from lead detail) ----------
 
 function openReminderModal() { document.getElementById("reminderModal").style.display = "flex"; }
 function closeReminderModal() { document.getElementById("reminderModal").style.display = "none"; }
 
 function submitReminder() {
   const date = document.getElementById("r_date").value;
+  const time = document.getElementById("r_time").value || "09:00";
   const note = document.getElementById("r_note").value.trim();
   if (!date) { alert("Please pick a date."); return; }
+
+  const dateTime = date + "T" + time;
 
   fetch(API_URL, {
     method: "POST",
@@ -562,7 +638,7 @@ function submitReminder() {
       action: "addReminder",
       LeadID: currentDetailId,
       DriverName: currentDetailName,
-      Date: date,
+      DateTime: dateTime,
       Note: note
     })
   })
@@ -571,15 +647,18 @@ function submitReminder() {
     if (result.success) {
       closeReminderModal();
       document.getElementById("r_date").value = "";
+      document.getElementById("r_time").value = "";
       document.getElementById("r_note").value = "";
       loadReminders();
-      alert("Reminder added.");
+      openDetail(currentDetailId); // refresh history to show the new reminder log
     } else {
       alert("Error adding reminder: " + (result.error || "Unknown error"));
     }
   })
   .catch(err => alert("Network error: " + err));
 }
+
+// ---------- REMINDER DATA / CALENDAR / CALLS TODAY ----------
 
 function loadReminders() {
   fetch(API_URL + "?action=getReminders")
@@ -593,47 +672,29 @@ function loadReminders() {
 }
 
 function renderCalendar() {
-  const events = allReminders.map(r => ({
-    id: r.ReminderID,
-    title: safeText(r.DriverName) + ": " + safeText(r.Note),
-    start: safeText(r.Date),
-    backgroundColor: r.Completed === "Yes" ? "#00b050" : "#ea4335",
-    borderColor: r.Completed === "Yes" ? "#00b050" : "#ea4335",
-    extendedProps: { LeadID: r.LeadID, Completed: r.Completed, Note: r.Note }
-  }));
+  const events = allReminders.map(r => {
+    const norm = normalizeDateTimeStr(r.DateTime);
+    return {
+      id: r.ReminderID,
+      title: safeText(r.DriverName),
+      start: norm,
+      backgroundColor: r.Completed === "Yes" ? "#00b050" : "#ea4335",
+      borderColor: r.Completed === "Yes" ? "#00b050" : "#ea4335"
+    };
+  });
 
-  if (calendar) { calendar.destroy(); }
+  if (calendar) calendar.destroy();
 
   calendar = new FullCalendar.Calendar(document.getElementById("calendarEl"), {
     initialView: "dayGridMonth",
     height: 650,
+    displayEventTime: true,
     events: events,
     eventClick: function(info) {
-      const props = info.event.extendedProps;
-      if (props.Completed === "Yes") {
-        alert("This reminder is already marked complete.");
-        return;
-      }
-      if (confirm("Mark this reminder as complete?\n\n" + info.event.title)) {
-        markReminderComplete(info.event.id, props.LeadID, props.Note);
-      }
+      openReminderDetail(info.event.id);
     }
   });
   calendar.render();
-}
-
-function markReminderComplete(reminderId, leadId, note) {
-  fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ action: "completeReminder", ReminderID: reminderId, LeadID: leadId, Note: note })
-  })
-  .then(res => res.json())
-  .then(result => {
-    if (result.success) { loadReminders(); }
-    else { alert("Error: " + (result.error || "Unknown error")); }
-  })
-  .catch(err => alert("Network error: " + err));
 }
 
 function renderCallsToday() {
@@ -641,7 +702,10 @@ function renderCallsToday() {
   const tbody = document.getElementById("callsBody");
   tbody.innerHTML = "";
 
-  const dueToday = allReminders.filter(r => safeText(r.Date) === todayStr && r.Completed !== "Yes");
+  const dueToday = allReminders.filter(r => {
+    const parts = splitDateTime(r.DateTime);
+    return parts.date === todayStr && r.Completed !== "Yes";
+  }).sort((a, b) => normalizeDateTimeStr(a.DateTime).localeCompare(normalizeDateTimeStr(b.DateTime)));
 
   if (dueToday.length === 0) {
     document.getElementById("callsTable").style.display = "none";
@@ -654,9 +718,13 @@ function renderCallsToday() {
   dueToday.forEach(r => {
     const lead = allLeads.find(l => l.RecordID === r.LeadID);
     const phone = lead ? safeText(lead.ContactNumber) : "";
-    const email = lead ? safeText(lead.Email) : "";
+    const parts = splitDateTime(r.DateTime);
 
     const tr = document.createElement("tr");
+
+    const tdTime = document.createElement("td");
+    tdTime.textContent = parts.time || "-";
+    tr.appendChild(tdTime);
 
     const tdName = document.createElement("td");
     tdName.textContent = safeText(r.DriverName);
@@ -671,38 +739,113 @@ function renderCallsToday() {
     tr.appendChild(tdNote);
 
     const tdActions = document.createElement("td");
-
-    const btnDone = document.createElement("button");
-    btnDone.className = "btn btn-small";
-    btnDone.textContent = "Mark Done";
-    btnDone.onclick = () => markReminderComplete(r.ReminderID, r.LeadID, r.Note);
-    tdActions.appendChild(btnDone);
-
-    if (phone) {
-      const btnWa = document.createElement("button");
-      btnWa.className = "btn btn-small btn-whatsapp";
-      btnWa.textContent = "WhatsApp";
-      btnWa.onclick = () => window.open("https://wa.me/" + phone.replace(/[^0-9]/g, ""), "_blank");
-      tdActions.appendChild(btnWa);
-    }
-
-    if (email) {
-      const btnEm = document.createElement("button");
-      btnEm.className = "btn btn-small btn-email";
-      btnEm.textContent = "Email";
-      btnEm.onclick = () => window.location.href = "mailto:" + email;
-      tdActions.appendChild(btnEm);
-    }
-
     const btnOpen = document.createElement("button");
-    btnOpen.className = "btn btn-small btn-secondary";
-    btnOpen.textContent = "Open Lead";
-    btnOpen.onclick = () => openDetail(r.LeadID);
+    btnOpen.className = "btn btn-small";
+    btnOpen.textContent = "Open Reminder";
+    btnOpen.onclick = () => openReminderDetail(r.ReminderID);
     tdActions.appendChild(btnOpen);
 
     tr.appendChild(tdActions);
     tbody.appendChild(tr);
   });
+}
+
+// ---------- REMINDER DETAIL POPUP (used by Calendar + Calls Due Today) ----------
+
+function openReminderDetail(reminderId) {
+  currentReminderId = reminderId;
+  const r = allReminders.find(x => x.ReminderID === reminderId);
+  if (!r) { alert("Reminder not found."); return; }
+
+  const lead = allLeads.find(l => l.RecordID === r.LeadID);
+  const phone = lead ? safeText(lead.ContactNumber) : "";
+  const email = lead ? safeText(lead.Email) : "";
+  const parts = splitDateTime(r.DateTime);
+  const isDone = r.Completed === "Yes";
+
+  document.getElementById("reminderDetailModal").style.display = "flex";
+  document.getElementById("reminderDetailContent").innerHTML = `
+    <h2>${safeText(r.DriverName)}</h2>
+    <p style="color:#666; font-size:13px;">${formatDateTimeReadable(r.DateTime)} ${isDone ? "— <strong style='color:#00b050'>Completed</strong>" : ""}</p>
+    <p><strong>Reason:</strong> ${safeText(r.Note) || "-"}</p>
+
+    <div class="action-row">
+      ${!isDone ? `<button class="btn btn-small btn-success" onclick="markReminderComplete()">✓ Mark Complete</button>` : ""}
+      ${phone ? `<button class="btn btn-small btn-whatsapp" onclick="window.open('https://wa.me/${phone.replace(/[^0-9]/g,'')}','_blank')">💬 WhatsApp</button>` : ""}
+      ${email ? `<button class="btn btn-small btn-email" onclick="window.location.href='mailto:${email}'">✉ Email</button>` : ""}
+      <button class="btn btn-small btn-secondary" onclick="closeReminderDetail(); openDetail('${r.LeadID}')">Open Full Lead</button>
+      ${!isDone ? `<button class="btn btn-small btn-reminder" onclick="toggleReschedule()">🔁 Reschedule</button>` : ""}
+    </div>
+
+    <div class="reschedule-box" id="rescheduleBox">
+      <div class="field-row">
+        <div>
+          <label>New Date</label>
+          <input type="date" id="resched_date" value="${parts.date}">
+        </div>
+        <div>
+          <label>New Time</label>
+          <input type="time" id="resched_time" value="${parts.time}">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-small" onclick="submitReschedule()">Save New Time</button>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="closeReminderDetail()">Close</button>
+    </div>
+  `;
+}
+
+function closeReminderDetail() {
+  document.getElementById("reminderDetailModal").style.display = "none";
+}
+
+function toggleReschedule() {
+  document.getElementById("rescheduleBox").classList.toggle("open");
+}
+
+function markReminderComplete() {
+  const r = allReminders.find(x => x.ReminderID === currentReminderId);
+  if (!r) return;
+  fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: "completeReminder", ReminderID: r.ReminderID, LeadID: r.LeadID, Note: r.Note })
+  })
+  .then(res => res.json())
+  .then(result => {
+    if (result.success) {
+      closeReminderDetail();
+      loadReminders();
+    } else { alert("Error: " + (result.error || "Unknown error")); }
+  })
+  .catch(err => alert("Network error: " + err));
+}
+
+function submitReschedule() {
+  const r = allReminders.find(x => x.ReminderID === currentReminderId);
+  if (!r) return;
+  const date = document.getElementById("resched_date").value;
+  const time = document.getElementById("resched_time").value || "09:00";
+  if (!date) { alert("Please pick a date."); return; }
+  const newDateTime = date + "T" + time;
+
+  fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: "rescheduleReminder", ReminderID: r.ReminderID, LeadID: r.LeadID, DateTime: newDateTime })
+  })
+  .then(res => res.json())
+  .then(result => {
+    if (result.success) {
+      closeReminderDetail();
+      loadReminders();
+    } else { alert("Error: " + (result.error || "Unknown error")); }
+  })
+  .catch(err => alert("Network error: " + err));
 }
 
 document.getElementById("statusFilter").addEventListener("change", renderLeads);
