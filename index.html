@@ -65,7 +65,6 @@
   .choice-option.disabled { opacity: 0.5; cursor: not-allowed; }
   .choice-option.disabled:hover { border-color: #eee; background: white; }
 
-  /* Detail panel specific */
   .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-bottom: 16px; }
   .detail-field-label { font-size: 11px; text-transform: uppercase; color: #999; font-weight: bold; }
   .detail-field-value { font-size: 14px; margin-top: 2px; }
@@ -219,6 +218,12 @@ const stageOptions = ["1st Contact Made","Meet and Greet Arranged","Meet and Gre
 let allLeads = [];
 let currentDetailId = null;
 
+// Helper: safely convert any value to a clean text string, even if it's a number, blank, or missing
+function safeText(val) {
+  if (val === null || val === undefined) return "";
+  return String(val);
+}
+
 function loadLeads() {
   document.getElementById("loading").style.display = "block";
   document.getElementById("loading").innerText = "Loading leads...";
@@ -244,9 +249,9 @@ function renderLeads() {
   const filtered = allLeads.filter(lead => {
     const matchesStatus = !statusFilter || lead.Status === statusFilter;
     const matchesSearch = !search ||
-      (lead.DriverName || "").toLowerCase().includes(search) ||
-      (lead.ContactNumber || "").toLowerCase().includes(search) ||
-      (lead.Email || "").toLowerCase().includes(search);
+      safeText(lead.DriverName).toLowerCase().includes(search) ||
+      safeText(lead.ContactNumber).toLowerCase().includes(search) ||
+      safeText(lead.Email).toLowerCase().includes(search);
     return matchesStatus && matchesSearch;
   });
 
@@ -264,12 +269,12 @@ function renderLeads() {
     const tr = document.createElement("tr");
     tr.style.borderLeftColor = color;
     tr.innerHTML = `
-      <td>${lead.DriverName || "(No name)"}</td>
-      <td>${lead.ContactNumber || "-"}</td>
-      <td>${lead.Email || "-"}</td>
-      <td>${lead.Stage || "-"}</td>
-      <td>${lead.Source || "-"}</td>
-      <td><span class="status-badge" style="background:${color}">${lead.Status || ""}</span></td>
+      <td>${safeText(lead.DriverName) || "(No name)"}</td>
+      <td>${safeText(lead.ContactNumber) || "-"}</td>
+      <td>${safeText(lead.Email) || "-"}</td>
+      <td>${safeText(lead.Stage) || "-"}</td>
+      <td>${safeText(lead.Source) || "-"}</td>
+      <td><span class="status-badge" style="background:${color}">${safeText(lead.Status)}</span></td>
     `;
     tr.onclick = () => openDetail(lead.RecordID);
     tbody.appendChild(tr);
@@ -335,12 +340,11 @@ function openDetail(id) {
 
 function closeDetail() {
   document.getElementById("detailModal").style.display = "none";
-  loadLeads(); // refresh list in case anything changed
+  loadLeads();
 }
 
 function renderDetail(lead, history, comments) {
   const color = statusColors[lead.Status] || "#cccccc";
-  const phone = (lead.ContactNumber || "").replace(/[^0-9]/g, "");
   const latestComment = comments.length > 0 ? comments[0] : null;
 
   const statusOptsHtml = statusOptions.map(s =>
@@ -349,15 +353,15 @@ function renderDetail(lead, history, comments) {
     `<option value="${s}" ${s === lead.Stage ? "selected" : ""}>${s}</option>`).join("");
 
   document.getElementById("detailContent").innerHTML = `
-    <h2>${lead.DriverName || "(No name)"} <span class="status-badge" style="background:${color}">${lead.Status}</span></h2>
+    <h2>${safeText(lead.DriverName) || "(No name)"} <span class="status-badge" style="background:${color}">${safeText(lead.Status)}</span></h2>
 
     <div class="detail-grid">
-      <div><div class="detail-field-label">Contact Number</div><div class="detail-field-value">${lead.ContactNumber || "-"}</div></div>
-      <div><div class="detail-field-label">Email</div><div class="detail-field-value">${lead.Email || "-"}</div></div>
-      <div><div class="detail-field-label">Source</div><div class="detail-field-value">${lead.Source || "-"}</div></div>
-      <div><div class="detail-field-label">Added</div><div class="detail-field-value">${lead.DateAdded ? new Date(lead.DateAdded).toLocaleString() : "-"} (${lead.AddedMethod || "-"})</div></div>
-      <div><div class="detail-field-label">PSV Licence</div><div class="detail-field-value">${lead.PSVLicence || "-"}</div></div>
-      <div><div class="detail-field-label">Owns Car</div><div class="detail-field-value">${lead.OwnCar || "-"}</div></div>
+      <div><div class="detail-field-label">Contact Number</div><div class="detail-field-value">${safeText(lead.ContactNumber) || "-"}</div></div>
+      <div><div class="detail-field-label">Email</div><div class="detail-field-value">${safeText(lead.Email) || "-"}</div></div>
+      <div><div class="detail-field-label">Source</div><div class="detail-field-value">${safeText(lead.Source) || "-"}</div></div>
+      <div><div class="detail-field-label">Added</div><div class="detail-field-value">${lead.DateAdded ? new Date(lead.DateAdded).toLocaleString() : "-"} (${safeText(lead.AddedMethod) || "-"})</div></div>
+      <div><div class="detail-field-label">PSV Licence</div><div class="detail-field-value">${safeText(lead.PSVLicence) || "-"}</div></div>
+      <div><div class="detail-field-label">Owns Car</div><div class="detail-field-value">${safeText(lead.OwnCar) || "-"}</div></div>
     </div>
 
     <label>Status</label>
@@ -377,10 +381,10 @@ function renderDetail(lead, history, comments) {
       <span>💬 Comments (${comments.length})</span><span>▾</span>
     </div>
     <div class="collapsible-body open" id="commentsBody">
-      ${latestComment ? `<div class="log-entry"><div class="log-time">${new Date(latestComment.Timestamp).toLocaleString()}</div>${latestComment.Text}</div>` : "<p style='color:#999; font-size:13px;'>No comments yet.</p>"}
+      ${latestComment ? `<div class="log-entry"><div class="log-time">${new Date(latestComment.Timestamp).toLocaleString()}</div>${safeText(latestComment.Text)}</div>` : "<p style='color:#999; font-size:13px;'>No comments yet.</p>"}
       ${comments.length > 1 ? `<div style="font-size:12px; color:#2563eb; cursor:pointer;" onclick="toggleCollapse('allComments')">Show ${comments.length - 1} earlier comment(s)</div>` : ""}
       <div class="collapsible-body" id="allComments">
-        ${comments.slice(1).map(c => `<div class="log-entry"><div class="log-time">${new Date(c.Timestamp).toLocaleString()}</div>${c.Text}</div>`).join("")}
+        ${comments.slice(1).map(c => `<div class="log-entry"><div class="log-time">${new Date(c.Timestamp).toLocaleString()}</div>${safeText(c.Text)}</div>`).join("")}
       </div>
       <div class="comment-box">
         <input type="text" id="newCommentText" placeholder="Add a comment...">
@@ -393,7 +397,7 @@ function renderDetail(lead, history, comments) {
     </div>
     <div class="collapsible-body" id="historyBody">
       ${history.length === 0 ? "<p style='color:#999; font-size:13px;'>No history yet.</p>" :
-        history.map(h => `<div class="log-entry"><div class="log-time">${new Date(h.Timestamp).toLocaleString()} — ${h.Type}</div>${h.Detail}</div>`).join("")}
+        history.map(h => `<div class="log-entry"><div class="log-time">${new Date(h.Timestamp).toLocaleString()} — ${safeText(h.Type)}</div>${safeText(h.Detail)}</div>`).join("")}
     </div>
 
     <div class="modal-actions">
@@ -444,14 +448,16 @@ function submitComment() {
 
 function sendEmail() {
   const lead = allLeads.find(l => l.RecordID === currentDetailId);
-  if (!lead || !lead.Email) { alert("No email address on file for this lead."); return; }
-  window.location.href = "mailto:" + lead.Email;
+  const email = lead ? safeText(lead.Email) : "";
+  if (!email) { alert("No email address on file for this lead."); return; }
+  window.location.href = "mailto:" + email;
 }
 
 function sendWhatsApp() {
   const lead = allLeads.find(l => l.RecordID === currentDetailId);
-  if (!lead || !lead.ContactNumber) { alert("No contact number on file for this lead."); return; }
-  const phone = lead.ContactNumber.replace(/[^0-9]/g, "");
+  const rawPhone = lead ? safeText(lead.ContactNumber) : "";
+  if (!rawPhone) { alert("No contact number on file for this lead."); return; }
+  const phone = rawPhone.replace(/[^0-9]/g, "");
   window.open("https://wa.me/" + phone, "_blank");
 }
 
