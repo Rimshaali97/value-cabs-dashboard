@@ -19,8 +19,14 @@
   .btn-secondary:hover { background: #333; }
   .btn-cancel { background: #999; }
   .btn-cancel:hover { background: #777; }
+  .btn-small { padding: 6px 12px; font-size: 13px; }
+  .btn-whatsapp { background: #25D366; }
+  .btn-whatsapp:hover { background: #1da851; }
+  .btn-email { background: #ea4335; }
+  .btn-email:hover { background: #c5372b; }
+  .btn-reminder { background: #f59e0b; }
+  .btn-reminder:hover { background: #d97e06; }
 
-  /* Table */
   table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
   thead th {
     text-align: left; font-size: 11px; text-transform: uppercase; color: #888;
@@ -34,7 +40,6 @@
   }
   #loading { color: #888; margin-bottom: 10px; }
 
-  /* Modal */
   .modal-overlay {
     display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(0,0,0,0.4); align-items: center; justify-content: center; z-index: 100;
@@ -42,14 +47,14 @@
   .modal-box {
     background: white; padding: 24px; border-radius: 10px; width: 360px; max-height: 85vh; overflow-y: auto;
   }
+  .modal-box.wide { width: 520px; }
   .modal-box h2 { margin-top: 0; }
   .modal-box label { display: block; font-size: 13px; font-weight: bold; margin-top: 10px; margin-bottom: 4px; }
-  .modal-box input, .modal-box select {
-    width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box;
+  .modal-box input, .modal-box select, .modal-box textarea {
+    width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; font-family: inherit;
   }
   .modal-actions { margin-top: 18px; display: flex; gap: 10px; justify-content: flex-end; }
 
-  /* Choice modal */
   .choice-option {
     border: 2px solid #eee; border-radius: 8px; padding: 16px; margin-bottom: 12px;
     cursor: pointer; transition: 0.15s;
@@ -59,6 +64,22 @@
   .choice-option p { margin: 0; font-size: 13px; color: #777; }
   .choice-option.disabled { opacity: 0.5; cursor: not-allowed; }
   .choice-option.disabled:hover { border-color: #eee; background: white; }
+
+  /* Detail panel specific */
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-bottom: 16px; }
+  .detail-field-label { font-size: 11px; text-transform: uppercase; color: #999; font-weight: bold; }
+  .detail-field-value { font-size: 14px; margin-top: 2px; }
+  .action-row { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+  .collapsible-header {
+    display: flex; justify-content: space-between; align-items: center;
+    cursor: pointer; padding: 10px 0; border-top: 1px solid #eee; font-weight: bold; font-size: 14px;
+  }
+  .collapsible-body { display: none; padding: 8px 0; }
+  .collapsible-body.open { display: block; }
+  .log-entry { font-size: 13px; padding: 6px 0; border-bottom: 1px dashed #eee; }
+  .log-time { color: #999; font-size: 11px; }
+  .comment-box { display: flex; gap: 8px; margin-top: 8px; }
+  .comment-box input { flex: 1; }
 </style>
 </head>
 <body>
@@ -121,16 +142,12 @@
 <div class="modal-overlay" id="addModal">
   <div class="modal-box">
     <h2>Add New Lead</h2>
-
     <label>Driver Name</label>
     <input type="text" id="f_name">
-
     <label>Contact Number</label>
     <input type="text" id="f_phone">
-
     <label>Email</label>
     <input type="text" id="f_email">
-
     <label>Status</label>
     <select id="f_status">
       <option value="New">New</option>
@@ -142,7 +159,6 @@
       <option value="Blacklist">Blacklist</option>
       <option value="Active">Active</option>
     </select>
-
     <label>Stage</label>
     <select id="f_stage">
       <option value="1st Contact Made">1st Contact Made</option>
@@ -158,7 +174,6 @@
       <option value="Flagged for Review">Flagged for Review</option>
       <option value="All Stages Completed">All Stages Completed</option>
     </select>
-
     <label>Source</label>
     <select id="f_source">
       <option value="Walk-in">Walk-in</option>
@@ -168,17 +183,21 @@
       <option value="Referral">Referral</option>
       <option value="Other">Other</option>
     </select>
-
     <label>PSV Licence? (Yes/No)</label>
     <input type="text" id="f_psv">
-
     <label>Owns Car? (Yes/No)</label>
     <input type="text" id="f_car">
-
     <div class="modal-actions">
       <button class="btn btn-cancel" onclick="closeAddModal()">Cancel</button>
       <button class="btn" onclick="submitAddLead()">Save Lead</button>
     </div>
+  </div>
+</div>
+
+<!-- Lead Detail Modal -->
+<div class="modal-overlay" id="detailModal">
+  <div class="modal-box wide" id="detailContent">
+    Loading...
   </div>
 </div>
 
@@ -187,17 +206,18 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbzDzVeFRU14JUtD8IMJdfZGpheEK6Ovf8Db-URwGaIznM0DlBoYkjG3O3QcscPbgHtl/exec";
 
 const statusColors = {
-  "New": "#999999",
-  "Engaging": "#00b0f0",
-  "Leads with Licence": "#ffff00",
-  "Retarget": "#7030a0",
-  "Leads with no licence": "#ffc000",
-  "Dead Lead-Opt Out": "#ff0000",
-  "Blacklist": "#333333",
-  "Active": "#00b050"
+  "New": "#999999", "Engaging": "#00b0f0", "Leads with Licence": "#ffff00",
+  "Retarget": "#7030a0", "Leads with no licence": "#ffc000",
+  "Dead Lead-Opt Out": "#ff0000", "Blacklist": "#333333", "Active": "#00b050"
 };
 
+const statusOptions = Object.keys(statusColors);
+const stageOptions = ["1st Contact Made","Meet and Greet Arranged","Meet and Greet Done",
+  "NI Direct Account Set Up","Theory Test Booked","Theory Passed","Practical Passed",
+  "Medical Booked","Medical Passed","Access NI Complete","Flagged for Review","All Stages Completed"];
+
 let allLeads = [];
+let currentDetailId = null;
 
 function loadLeads() {
   document.getElementById("loading").style.display = "block";
@@ -210,9 +230,7 @@ function loadLeads() {
       document.getElementById("loading").style.display = "none";
       renderLeads();
     })
-    .catch(err => {
-      document.getElementById("loading").innerText = "Error loading leads: " + err;
-    });
+    .catch(err => { document.getElementById("loading").innerText = "Error loading leads: " + err; });
 }
 
 function renderLeads() {
@@ -253,7 +271,7 @@ function renderLeads() {
       <td>${lead.Source || "-"}</td>
       <td><span class="status-badge" style="background:${color}">${lead.Status || ""}</span></td>
     `;
-    tr.onclick = () => alert("Lead detail panel comes in a later step: " + lead.RecordID);
+    tr.onclick = () => openDetail(lead.RecordID);
     tbody.appendChild(tr);
   });
 }
@@ -276,11 +294,7 @@ function submitAddLead() {
     OwnCar: document.getElementById("f_car").value,
     AddedMethod: "Manual"
   };
-
-  if (!payload.DriverName) {
-    alert("Please enter a driver name.");
-    return;
-  }
+  if (!payload.DriverName) { alert("Please enter a driver name."); return; }
 
   fetch(API_URL, {
     method: "POST",
@@ -291,17 +305,154 @@ function submitAddLead() {
   .then(result => {
     if (result.success) {
       closeAddModal();
-      document.getElementById("f_name").value = "";
-      document.getElementById("f_phone").value = "";
-      document.getElementById("f_email").value = "";
-      document.getElementById("f_psv").value = "";
-      document.getElementById("f_car").value = "";
+      ["f_name","f_phone","f_email","f_psv","f_car"].forEach(id => document.getElementById(id).value = "");
       loadLeads();
-    } else {
-      alert("Error saving lead: " + (result.error || "Unknown error"));
-    }
+    } else { alert("Error saving lead: " + (result.error || "Unknown error")); }
   })
   .catch(err => alert("Network error: " + err));
+}
+
+// ---------- DETAIL PANEL ----------
+
+function openDetail(id) {
+  currentDetailId = id;
+  document.getElementById("detailModal").style.display = "flex";
+  document.getElementById("detailContent").innerHTML = "Loading lead details...";
+
+  fetch(API_URL + "?action=getLeadDetail&id=" + encodeURIComponent(id))
+    .then(res => res.json())
+    .then(data => {
+      if (!data.success) {
+        document.getElementById("detailContent").innerHTML = "Error: " + data.error;
+        return;
+      }
+      renderDetail(data.lead, data.history, data.comments);
+    })
+    .catch(err => {
+      document.getElementById("detailContent").innerHTML = "Network error: " + err;
+    });
+}
+
+function closeDetail() {
+  document.getElementById("detailModal").style.display = "none";
+  loadLeads(); // refresh list in case anything changed
+}
+
+function renderDetail(lead, history, comments) {
+  const color = statusColors[lead.Status] || "#cccccc";
+  const phone = (lead.ContactNumber || "").replace(/[^0-9]/g, "");
+  const latestComment = comments.length > 0 ? comments[0] : null;
+
+  const statusOptsHtml = statusOptions.map(s =>
+    `<option value="${s}" ${s === lead.Status ? "selected" : ""}>${s}</option>`).join("");
+  const stageOptsHtml = stageOptions.map(s =>
+    `<option value="${s}" ${s === lead.Stage ? "selected" : ""}>${s}</option>`).join("");
+
+  document.getElementById("detailContent").innerHTML = `
+    <h2>${lead.DriverName || "(No name)"} <span class="status-badge" style="background:${color}">${lead.Status}</span></h2>
+
+    <div class="detail-grid">
+      <div><div class="detail-field-label">Contact Number</div><div class="detail-field-value">${lead.ContactNumber || "-"}</div></div>
+      <div><div class="detail-field-label">Email</div><div class="detail-field-value">${lead.Email || "-"}</div></div>
+      <div><div class="detail-field-label">Source</div><div class="detail-field-value">${lead.Source || "-"}</div></div>
+      <div><div class="detail-field-label">Added</div><div class="detail-field-value">${lead.DateAdded ? new Date(lead.DateAdded).toLocaleString() : "-"} (${lead.AddedMethod || "-"})</div></div>
+      <div><div class="detail-field-label">PSV Licence</div><div class="detail-field-value">${lead.PSVLicence || "-"}</div></div>
+      <div><div class="detail-field-label">Owns Car</div><div class="detail-field-value">${lead.OwnCar || "-"}</div></div>
+    </div>
+
+    <label>Status</label>
+    <select id="d_status">${statusOptsHtml}</select>
+
+    <label>Stage</label>
+    <select id="d_stage">${stageOptsHtml}</select>
+
+    <div class="action-row">
+      <button class="btn btn-small" onclick="saveDetailChanges()">Save Changes</button>
+      <button class="btn btn-small btn-email" onclick="sendEmail()">✉ Email</button>
+      <button class="btn btn-small btn-whatsapp" onclick="sendWhatsApp()">💬 WhatsApp</button>
+      <button class="btn btn-small btn-reminder" onclick="alert('Calendar reminder feature is built in a later step.')">⏰ Add Reminder</button>
+    </div>
+
+    <div class="collapsible-header" onclick="toggleCollapse('commentsBody')">
+      <span>💬 Comments (${comments.length})</span><span>▾</span>
+    </div>
+    <div class="collapsible-body open" id="commentsBody">
+      ${latestComment ? `<div class="log-entry"><div class="log-time">${new Date(latestComment.Timestamp).toLocaleString()}</div>${latestComment.Text}</div>` : "<p style='color:#999; font-size:13px;'>No comments yet.</p>"}
+      ${comments.length > 1 ? `<div style="font-size:12px; color:#2563eb; cursor:pointer;" onclick="toggleCollapse('allComments')">Show ${comments.length - 1} earlier comment(s)</div>` : ""}
+      <div class="collapsible-body" id="allComments">
+        ${comments.slice(1).map(c => `<div class="log-entry"><div class="log-time">${new Date(c.Timestamp).toLocaleString()}</div>${c.Text}</div>`).join("")}
+      </div>
+      <div class="comment-box">
+        <input type="text" id="newCommentText" placeholder="Add a comment...">
+        <button class="btn btn-small" onclick="submitComment()">Post</button>
+      </div>
+    </div>
+
+    <div class="collapsible-header" onclick="toggleCollapse('historyBody')">
+      <span>🕒 History (${history.length})</span><span>▾</span>
+    </div>
+    <div class="collapsible-body" id="historyBody">
+      ${history.length === 0 ? "<p style='color:#999; font-size:13px;'>No history yet.</p>" :
+        history.map(h => `<div class="log-entry"><div class="log-time">${new Date(h.Timestamp).toLocaleString()} — ${h.Type}</div>${h.Detail}</div>`).join("")}
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="closeDetail()">Close</button>
+    </div>
+  `;
+}
+
+function toggleCollapse(id) {
+  document.getElementById(id).classList.toggle("open");
+}
+
+function saveDetailChanges() {
+  const payload = {
+    action: "updateLead",
+    RecordID: currentDetailId,
+    Status: document.getElementById("d_status").value,
+    Stage: document.getElementById("d_stage").value
+  };
+  fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  })
+  .then(res => res.json())
+  .then(result => {
+    if (result.success) { openDetail(currentDetailId); }
+    else { alert("Error saving: " + (result.error || "Unknown error")); }
+  })
+  .catch(err => alert("Network error: " + err));
+}
+
+function submitComment() {
+  const text = document.getElementById("newCommentText").value.trim();
+  if (!text) return;
+  fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: "addComment", LeadID: currentDetailId, Text: text })
+  })
+  .then(res => res.json())
+  .then(result => {
+    if (result.success) { openDetail(currentDetailId); }
+    else { alert("Error posting comment: " + (result.error || "Unknown error")); }
+  })
+  .catch(err => alert("Network error: " + err));
+}
+
+function sendEmail() {
+  const lead = allLeads.find(l => l.RecordID === currentDetailId);
+  if (!lead || !lead.Email) { alert("No email address on file for this lead."); return; }
+  window.location.href = "mailto:" + lead.Email;
+}
+
+function sendWhatsApp() {
+  const lead = allLeads.find(l => l.RecordID === currentDetailId);
+  if (!lead || !lead.ContactNumber) { alert("No contact number on file for this lead."); return; }
+  const phone = lead.ContactNumber.replace(/[^0-9]/g, "");
+  window.open("https://wa.me/" + phone, "_blank");
 }
 
 document.getElementById("statusFilter").addEventListener("change", renderLeads);
