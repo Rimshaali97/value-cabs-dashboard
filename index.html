@@ -35,6 +35,8 @@
   .btn-reminder:hover { background: #d97e06; }
   .btn-success { background: #00b050; }
   .btn-success:hover { background: #00913f; }
+  .btn-call { background: #7030a0; }
+  .btn-call:hover { background: #5c2680; }
 
   table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
   thead th {
@@ -91,14 +93,19 @@
   .log-time { color: #999; font-size: 11px; }
   .comment-box { display: flex; gap: 8px; margin-top: 8px; }
   .comment-box input { flex: 1; }
-  .reminder-line { font-size: 13px; padding: 6px 0; border-bottom: 1px dashed #eee; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+  .reminder-line { font-size: 13px; padding: 8px 0; border-bottom: 1px dashed #eee; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
   .reminder-line:hover { background: #fafafa; }
+  .reminder-summary-btn {
+    width: 100%; text-align: left; background: #f5f5f5; border: 1px solid #eee; border-radius: 8px;
+    padding: 12px; cursor: pointer; font-size: 14px; font-weight: bold; color: #333;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .reminder-summary-btn:hover { background: #eee; }
 
   #calendarEl { background: white; padding: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
   .reschedule-box { border: 1px dashed #ccc; border-radius: 8px; padding: 12px; margin-top: 12px; display: none; }
   .reschedule-box.open { display: block; }
 
-  /* Reports */
   .report-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
   .report-card { background: white; border-radius: 8px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
   .report-card .num { font-size: 24px; font-weight: bold; color: #222; }
@@ -168,6 +175,7 @@
     <thead>
       <tr>
         <th>Time</th>
+        <th>Type</th>
         <th>Driver Name</th>
         <th>Contact Number</th>
         <th>Reason</th>
@@ -176,7 +184,7 @@
     </thead>
     <tbody id="callsBody"></tbody>
   </table>
-  <p id="noCallsToday" style="display:none;">No calls due today.</p>
+  <p id="noCallsToday" style="display:none;">No calls or reminders due today.</p>
 </div>
 
 <!-- REPORTS TAB -->
@@ -202,7 +210,7 @@
       <div class="report-card"><div class="num" id="rc_totalLeads">0</div><div class="label">Total Leads (All Time)</div></div>
       <div class="report-card"><div class="num" id="rc_newInRange">0</div><div class="label">New Leads in Range</div></div>
       <div class="report-card"><div class="num" id="rc_activityInRange">0</div><div class="label">Activity Logged in Range</div></div>
-      <div class="report-card"><div class="num" id="rc_remindersCompleted">0</div><div class="label">Reminders Completed in Range</div></div>
+      <div class="report-card"><div class="num" id="rc_callsCompleted">0</div><div class="label">Calls Completed in Range</div></div>
     </div>
 
     <div class="report-section">
@@ -318,7 +326,12 @@
 <!-- Add Reminder Modal (from lead detail panel) -->
 <div class="modal-overlay" id="reminderModal">
   <div class="modal-box">
-    <h2>Add Reminder</h2>
+    <h2 id="reminderModalTitle">Add Reminder</h2>
+    <label>Reminder Type</label>
+    <select id="r_type">
+      <option value="General">General Reminder</option>
+      <option value="Call">Call Reminder</option>
+    </select>
     <div class="field-row">
       <div>
         <label>Date</label>
@@ -338,7 +351,14 @@
   </div>
 </div>
 
-<!-- Reminder Detail / Popup Modal -->
+<!-- Reminder List Popup (from lead detail "View Reminders") -->
+<div class="modal-overlay" id="reminderListModal">
+  <div class="modal-box" id="reminderListContent">
+    Loading...
+  </div>
+</div>
+
+<!-- Reminder Detail / Popup Modal (from calendar, Calls Due Today, or reminder list) -->
 <div class="modal-overlay" id="reminderDetailModal">
   <div class="modal-box" id="reminderDetailContent">
     Loading...
@@ -366,7 +386,7 @@ let allHistory = [];
 let currentDetailId = null;
 let currentDetailName = "";
 let currentReminderId = null;
-let reminderReturnsToLeadDetail = false;
+let reminderReturnTarget = null; // "leadList" | "leadDetail" | null
 let calendar = null;
 
 function safeText(val) {
@@ -408,7 +428,6 @@ function formatDateTimeReadable(dtStr) {
   return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
 }
 
-// Safely turn any Sheets timestamp value into a plain YYYY-MM-DD string for date-range comparisons
 function toDateOnlyString(val) {
   const d = new Date(val);
   if (isNaN(d)) return "";
@@ -559,6 +578,7 @@ function renderDetail(lead, history, comments, reminders) {
   const color = statusColors[lead.Status] || "#cccccc";
   const latestComment = comments.length > 0 ? comments[0] : null;
   const earlierComments = comments.slice(1);
+  const pendingCount = reminders.filter(r => r.Completed !== "Yes").length;
 
   const statusOptsHtml = statusOptions.map(s =>
     `<option value="${s}" ${s === lead.Status ? "selected" : ""}>${s}</option>`).join("");
@@ -567,18 +587,6 @@ function renderDetail(lead, history, comments, reminders) {
   const sourceListVals = ["Walk-in","Reception","Website","META","Referral","Other"];
   const sourceOptsHtml = sourceListVals.map(s =>
     `<option value="${s}" ${s === lead.Source ? "selected" : ""}>${s}</option>`).join("");
-
-  const remindersHtml = reminders.length === 0
-    ? "<p style='color:#999; font-size:13px;'>No reminders set for this lead.</p>"
-    : reminders.map(r => {
-        const badge = r.Completed === "Yes"
-          ? `<span class="reminder-done-badge">Done</span>`
-          : `<span class="reminder-pending-badge">Pending</span>`;
-        return `<div class="reminder-line" onclick="openReminderDetail('${r.ReminderID}', true)">
-          <span>${formatDateTimeReadable(r.DateTime)} — ${safeText(r.Note) || "(no note)"}</span>
-          ${badge}
-        </div>`;
-      }).join("");
 
   document.getElementById("detailContent").innerHTML = `
     <h2><span id="d_name_display">${safeText(lead.DriverName) || "(No name)"}</span> <span class="status-badge" style="background:${color}">${safeText(lead.Status)}</span></h2>
@@ -621,12 +629,15 @@ function renderDetail(lead, history, comments, reminders) {
       <button class="btn btn-small btn-email" onclick="sendEmail()">✉ Email</button>
       <button class="btn btn-small btn-whatsapp" onclick="sendWhatsApp()">💬 WhatsApp</button>
       <button class="btn btn-small btn-reminder" onclick="openReminderModal()">⏰ Add Reminder</button>
+      <button class="btn btn-small btn-call" onclick="openReminderModal('Call')">📞 Add Call Reminder</button>
     </div>
 
-    <div class="section-header">⏰ Reminders (${reminders.length})</div>
-    <div>${remindersHtml}</div>
+    <button class="reminder-summary-btn" onclick="openReminderList()">
+      <span>⏰ Reminders (${reminders.length})</span>
+      <span>${pendingCount > 0 ? `<span class="reminder-pending-badge">${pendingCount} pending</span>` : "All clear ✓"}</span>
+    </button>
 
-    <div class="section-header">💬 Comments (${comments.length})</div>
+    <div class="section-header" style="margin-top:16px;">💬 Comments (${comments.length})</div>
     <div>
       ${latestComment ? `<div class="log-entry"><div class="log-time">${new Date(latestComment.Timestamp).toLocaleString()}</div>${safeText(latestComment.Text)}</div>` : "<p style='color:#999; font-size:13px;'>No comments yet.</p>"}
       ${earlierComments.length > 0 ? `<div style="font-size:12px; color:#2563eb; cursor:pointer; margin-top:4px;" onclick="toggleCollapse('allComments')">Show ${earlierComments.length} earlier comment(s)</div>` : ""}
@@ -651,6 +662,9 @@ function renderDetail(lead, history, comments, reminders) {
       <button class="btn btn-cancel" onclick="closeDetail()">Close</button>
     </div>
   `;
+
+  // Stash this lead's reminders for the popup list to use
+  window._currentLeadReminders = reminders;
 }
 
 function toggleCollapse(id) {
@@ -714,12 +728,56 @@ function sendWhatsApp() {
   window.open("https://wa.me/" + phone, "_blank");
 }
 
+// ---------- REMINDER LIST POPUP (from lead detail) ----------
+
+function openReminderList() {
+  const reminders = window._currentLeadReminders || [];
+  document.getElementById("reminderListModal").style.display = "flex";
+
+  const pending = reminders.filter(r => r.Completed !== "Yes");
+  const done = reminders.filter(r => r.Completed === "Yes");
+
+  const rowsHtml = (list, emptyMsg) => {
+    if (list.length === 0) return `<p style='color:#999; font-size:13px;'>${emptyMsg}</p>`;
+    return list.map(r => {
+      const icon = r.Type === "Call" ? "📞" : "⏰";
+      const badge = r.Completed === "Yes"
+        ? `<span class="reminder-done-badge">Done</span>`
+        : `<span class="reminder-pending-badge">Pending</span>`;
+      return `<div class="reminder-line" onclick="openReminderDetail('${r.ReminderID}', 'leadList')">
+        <span>${icon} ${formatDateTimeReadable(r.DateTime)} — ${safeText(r.Note) || "(no note)"}</span>
+        ${badge}
+      </div>`;
+    }).join("");
+  };
+
+  document.getElementById("reminderListContent").innerHTML = `
+    <h2>Reminders for ${currentDetailName}</h2>
+    <div class="section-header">Pending (${pending.length})</div>
+    ${rowsHtml(pending, "No pending reminders.")}
+    <div class="section-header">Completed (${done.length})</div>
+    ${rowsHtml(done, "None completed yet.")}
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="closeReminderList()">Close</button>
+    </div>
+  `;
+}
+
+function closeReminderList() {
+  document.getElementById("reminderListModal").style.display = "none";
+}
+
 // ---------- ADD REMINDER ----------
 
-function openReminderModal() { document.getElementById("reminderModal").style.display = "flex"; }
+function openReminderModal(presetType) {
+  document.getElementById("r_type").value = presetType || "General";
+  document.getElementById("reminderModalTitle").innerText = presetType === "Call" ? "Add Call Reminder" : "Add Reminder";
+  document.getElementById("reminderModal").style.display = "flex";
+}
 function closeReminderModal() { document.getElementById("reminderModal").style.display = "none"; }
 
 function submitReminder() {
+  const type = document.getElementById("r_type").value;
   const date = document.getElementById("r_date").value;
   const time = document.getElementById("r_time").value || "09:00";
   const note = document.getElementById("r_note").value.trim();
@@ -735,7 +793,8 @@ function submitReminder() {
       LeadID: currentDetailId,
       DriverName: currentDetailName,
       DateTime: dateTime,
-      Note: note
+      Note: note,
+      Type: type
     })
   })
   .then(res => res.json())
@@ -770,12 +829,13 @@ function loadReminders() {
 function renderCalendar() {
   const events = allReminders.map(r => {
     const norm = normalizeDateTimeStr(r.DateTime);
+    const icon = r.Type === "Call" ? "📞 " : "";
     return {
       id: r.ReminderID,
-      title: safeText(r.DriverName),
+      title: icon + safeText(r.DriverName),
       start: norm,
-      backgroundColor: r.Completed === "Yes" ? "#00b050" : "#ea4335",
-      borderColor: r.Completed === "Yes" ? "#00b050" : "#ea4335"
+      backgroundColor: r.Completed === "Yes" ? "#00b050" : (r.Type === "Call" ? "#7030a0" : "#ea4335"),
+      borderColor: r.Completed === "Yes" ? "#00b050" : (r.Type === "Call" ? "#7030a0" : "#ea4335")
     };
   });
 
@@ -787,7 +847,7 @@ function renderCalendar() {
     displayEventTime: true,
     events: events,
     eventClick: function(info) {
-      openReminderDetail(info.event.id, false);
+      openReminderDetail(info.event.id, null);
     }
   });
   calendar.render();
@@ -815,12 +875,17 @@ function renderCallsToday() {
     const lead = allLeads.find(l => l.RecordID === r.LeadID);
     const phone = lead ? safeText(lead.ContactNumber) : "";
     const parts = splitDateTime(r.DateTime);
+    const isCall = r.Type === "Call";
 
     const tr = document.createElement("tr");
 
     const tdTime = document.createElement("td");
     tdTime.textContent = parts.time || "-";
     tr.appendChild(tdTime);
+
+    const tdType = document.createElement("td");
+    tdType.innerHTML = isCall ? "📞 Call" : "⏰ Reminder";
+    tr.appendChild(tdType);
 
     const tdName = document.createElement("td");
     tdName.textContent = safeText(r.DriverName);
@@ -835,10 +900,25 @@ function renderCallsToday() {
     tr.appendChild(tdNote);
 
     const tdActions = document.createElement("td");
+
+    const btnComplete = document.createElement("button");
+    btnComplete.className = isCall ? "btn btn-small btn-call" : "btn btn-small btn-success";
+    btnComplete.textContent = isCall ? "📞 Call Done" : "✓ Mark Complete";
+    btnComplete.onclick = () => quickCompleteReminder(r.ReminderID, r.LeadID, r.Note);
+    tdActions.appendChild(btnComplete);
+
+    if (phone) {
+      const btnWa = document.createElement("button");
+      btnWa.className = "btn btn-small btn-whatsapp";
+      btnWa.textContent = "WhatsApp";
+      btnWa.onclick = () => window.open("https://wa.me/" + phone.replace(/[^0-9]/g, ""), "_blank");
+      tdActions.appendChild(btnWa);
+    }
+
     const btnOpen = document.createElement("button");
-    btnOpen.className = "btn btn-small";
-    btnOpen.textContent = "Open Reminder";
-    btnOpen.onclick = () => openReminderDetail(r.ReminderID, false);
+    btnOpen.className = "btn btn-small btn-secondary";
+    btnOpen.textContent = "Open";
+    btnOpen.onclick = () => openReminderDetail(r.ReminderID, null);
     tdActions.appendChild(btnOpen);
 
     tr.appendChild(tdActions);
@@ -846,11 +926,25 @@ function renderCallsToday() {
   });
 }
 
+function quickCompleteReminder(reminderId, leadId, note) {
+  fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: "completeReminder", ReminderID: reminderId, LeadID: leadId, Note: note })
+  })
+  .then(res => res.json())
+  .then(result => {
+    if (result.success) { loadReminders(); }
+    else { alert("Error: " + (result.error || "Unknown error")); }
+  })
+  .catch(err => alert("Network error: " + err));
+}
+
 // ---------- REMINDER DETAIL POPUP ----------
 
-function openReminderDetail(reminderId, fromLeadDetail) {
+function openReminderDetail(reminderId, returnTarget) {
   currentReminderId = reminderId;
-  reminderReturnsToLeadDetail = !!fromLeadDetail;
+  reminderReturnTarget = returnTarget;
   const r = allReminders.find(x => x.ReminderID === reminderId);
   if (!r) { alert("Reminder not found."); return; }
 
@@ -859,15 +953,18 @@ function openReminderDetail(reminderId, fromLeadDetail) {
   const email = lead ? safeText(lead.Email) : "";
   const parts = splitDateTime(r.DateTime);
   const isDone = r.Completed === "Yes";
+  const isCall = r.Type === "Call";
+  const icon = isCall ? "📞" : "⏰";
+  const completeLabel = isCall ? "📞 Call Done" : "✓ Mark Complete";
 
   document.getElementById("reminderDetailModal").style.display = "flex";
   document.getElementById("reminderDetailContent").innerHTML = `
-    <h2>${safeText(r.DriverName)}</h2>
-    <p style="color:#666; font-size:13px;">${formatDateTimeReadable(r.DateTime)} ${isDone ? "— <strong style='color:#00b050'>Completed</strong>" : ""}</p>
+    <h2>${icon} ${safeText(r.DriverName)}</h2>
+    <p style="color:#666; font-size:13px;">${isCall ? "Call Reminder" : "General Reminder"} — ${formatDateTimeReadable(r.DateTime)} ${isDone ? `— <strong style='color:#00b050'>${isCall ? "Called" : "Completed"}</strong>` : ""}</p>
     <p><strong>Reason:</strong> ${safeText(r.Note) || "-"}</p>
 
     <div class="action-row">
-      ${!isDone ? `<button class="btn btn-small btn-success" onclick="markReminderComplete()">✓ Mark Complete</button>` : ""}
+      ${!isDone ? `<button class="btn btn-small ${isCall ? "btn-call" : "btn-success"}" onclick="markReminderComplete()">${completeLabel}</button>` : ""}
       ${phone ? `<button class="btn btn-small btn-whatsapp" onclick="window.open('https://wa.me/${phone.replace(/[^0-9]/g,'')}','_blank')">💬 WhatsApp</button>` : ""}
       ${email ? `<button class="btn btn-small btn-email" onclick="window.location.href='mailto:${email}'">✉ Email</button>` : ""}
       <button class="btn btn-small btn-secondary" onclick="closeReminderDetail(); openDetail('${r.LeadID}')">Open Full Lead</button>
@@ -898,8 +995,11 @@ function openReminderDetail(reminderId, fromLeadDetail) {
 
 function closeReminderDetail() {
   document.getElementById("reminderDetailModal").style.display = "none";
-  if (reminderReturnsToLeadDetail && currentDetailId) {
+  if (reminderReturnTarget === "leadDetail" && currentDetailId) {
     openDetail(currentDetailId);
+  } else if (reminderReturnTarget === "leadList" && currentDetailId) {
+    openDetail(currentDetailId);
+    setTimeout(openReminderList, 50);
   }
 }
 
@@ -963,25 +1063,15 @@ function setReportRangeAllTime() {
   document.getElementById("rep_endDate").value = "2100-01-01";
 }
 
-function loadHistoryForReports(callback) {
-  fetch(API_URL + "?action=getAllHistory")
-    .then(res => res.json())
-    .then(data => {
-      allHistory = data.history || [];
-      if (callback) callback();
-    })
-    .catch(err => { alert("Error loading activity data: " + err); });
-}
-
 function generateReport() {
   const startStr = document.getElementById("rep_startDate").value;
   const endStr = document.getElementById("rep_endDate").value;
   if (!startStr || !endStr) { alert("Please choose both a start and end date."); return; }
 
   document.getElementById("reportLoading").innerText = "Generating report...";
+  document.getElementById("reportLoading").style.display = "block";
   document.getElementById("reportContent").style.display = "none";
 
-  // Make sure we have the latest leads, reminders, and full history before computing
   Promise.all([
     fetch(API_URL).then(r => r.json()),
     fetch(API_URL + "?action=getReminders").then(r => r.json()),
@@ -1019,11 +1109,11 @@ function renderReportCards(startStr, endStr) {
   }).length;
   document.getElementById("rc_activityInRange").innerText = activityInRange;
 
-  const remindersCompletedInRange = allHistory.filter(h => {
+  const callsCompletedInRange = allHistory.filter(h => {
     const d = toDateOnlyString(h.Timestamp);
-    return d >= startStr && d <= endStr && h.Type === "Reminder Completed";
+    return d >= startStr && d <= endStr && h.Type === "Call Completed";
   }).length;
-  document.getElementById("rc_remindersCompleted").innerText = remindersCompletedInRange;
+  document.getElementById("rc_callsCompleted").innerText = callsCompletedInRange;
 }
 
 function renderBreakdown(containerId, counts, colorMap) {
