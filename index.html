@@ -6,24 +6,45 @@
 <style>
   body { font-family: Arial, sans-serif; background: #f4f5f7; margin: 0; padding: 20px; }
   h1 { color: #222; }
-  .toolbar { margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .toolbar { margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .toolbar select, .toolbar input {
     padding: 8px; border-radius: 6px; border: 1px solid #ccc;
   }
+  .btn {
+    padding: 9px 16px; border-radius: 6px; border: none; background: #2563eb;
+    color: white; font-weight: bold; cursor: pointer;
+  }
+  .btn:hover { background: #1d4ed8; }
   .lead-row {
     background: white; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px;
-    display: flex; align-items: center; gap: 16px; border-left: 6px solid #ccc;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer;
+    display: flex; align-items: center; gap: 20px; border-left: 6px solid #ccc;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; flex-wrap: wrap;
   }
   .lead-row:hover { background: #fafafa; }
-  .lead-name { font-weight: bold; flex: 1.2; }
-  .lead-contact { flex: 1; color: #555; font-size: 14px; }
-  .lead-stage { flex: 1.2; font-size: 13px; color: #333; }
-  .lead-source { flex: 0.8; font-size: 13px; color: #888; }
+  .field { display: flex; flex-direction: column; min-width: 110px; }
+  .field-label { font-size: 10px; text-transform: uppercase; color: #999; font-weight: bold; margin-bottom: 2px; }
+  .field-value { font-size: 14px; color: #222; }
   .status-badge {
     padding: 3px 10px; border-radius: 12px; font-size: 12px; color: white; font-weight: bold;
   }
   #loading { color: #888; }
+
+  /* Modal */
+  .modal-overlay {
+    display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.4); align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-box {
+    background: white; padding: 24px; border-radius: 10px; width: 360px; max-height: 85vh; overflow-y: auto;
+  }
+  .modal-box h2 { margin-top: 0; }
+  .modal-box label { display: block; font-size: 13px; font-weight: bold; margin-top: 10px; margin-bottom: 4px; }
+  .modal-box input, .modal-box select {
+    width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box;
+  }
+  .modal-actions { margin-top: 18px; display: flex; gap: 10px; justify-content: flex-end; }
+  .btn-cancel { background: #999; }
+  .btn-cancel:hover { background: #777; }
 </style>
 </head>
 <body>
@@ -43,10 +64,77 @@
     <option value="Active">Active</option>
   </select>
   <input type="text" id="searchBox" placeholder="Search name, phone, or email...">
+  <button class="btn" onclick="openAddModal()">+ Add Lead</button>
+  <button class="btn" style="background:#555" onclick="loadLeads()">Refresh</button>
 </div>
 
 <div id="loading">Loading leads...</div>
 <div id="leadsList"></div>
+
+<!-- Add Lead Modal -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal-box">
+    <h2>Add New Lead</h2>
+
+    <label>Driver Name</label>
+    <input type="text" id="f_name">
+
+    <label>Contact Number</label>
+    <input type="text" id="f_phone">
+
+    <label>Email</label>
+    <input type="text" id="f_email">
+
+    <label>Status</label>
+    <select id="f_status">
+      <option value="New">New</option>
+      <option value="Engaging">Engaging</option>
+      <option value="Leads with Licence">Leads with Licence</option>
+      <option value="Retarget">Retarget</option>
+      <option value="Leads with no licence">Leads with no licence</option>
+      <option value="Dead Lead-Opt Out">Dead Lead-Opt Out</option>
+      <option value="Blacklist">Blacklist</option>
+      <option value="Active">Active</option>
+    </select>
+
+    <label>Stage</label>
+    <select id="f_stage">
+      <option value="1st Contact Made">1st Contact Made</option>
+      <option value="Meet and Greet Arranged">Meet and Greet Arranged</option>
+      <option value="Meet and Greet Done">Meet and Greet Done</option>
+      <option value="NI Direct Account Set Up">NI Direct Account Set Up</option>
+      <option value="Theory Test Booked">Theory Test Booked</option>
+      <option value="Theory Passed">Theory Passed</option>
+      <option value="Practical Passed">Practical Passed</option>
+      <option value="Medical Booked">Medical Booked</option>
+      <option value="Medical Passed">Medical Passed</option>
+      <option value="Access NI Complete">Access NI Complete</option>
+      <option value="Flagged for Review">Flagged for Review</option>
+      <option value="All Stages Completed">All Stages Completed</option>
+    </select>
+
+    <label>Source</label>
+    <select id="f_source">
+      <option value="Walk-in">Walk-in</option>
+      <option value="Reception">Reception</option>
+      <option value="Website">Website</option>
+      <option value="META">META</option>
+      <option value="Referral">Referral</option>
+      <option value="Other">Other</option>
+    </select>
+
+    <label>PSV Licence? (Yes/No)</label>
+    <input type="text" id="f_psv">
+
+    <label>Owns Car? (Yes/No)</label>
+    <input type="text" id="f_car">
+
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="closeAddModal()">Cancel</button>
+      <button class="btn" onclick="submitAddLead()">Save Lead</button>
+    </div>
+  </div>
+</div>
 
 <script>
 // PASTE YOUR APPS SCRIPT WEB APP URL BETWEEN THE QUOTES BELOW
@@ -66,6 +154,8 @@ const statusColors = {
 let allLeads = [];
 
 function loadLeads() {
+  document.getElementById("loading").style.display = "block";
+  document.getElementById("loading").innerText = "Loading leads...";
   fetch(API_URL)
     .then(res => res.json())
     .then(data => {
@@ -104,15 +194,83 @@ function renderLeads() {
     row.className = "lead-row";
     row.style.borderLeftColor = color;
     row.innerHTML = `
-      <div class="lead-name">${lead.DriverName || "(No name)"}</div>
-      <div class="lead-contact">${lead.ContactNumber || ""}<br>${lead.Email || ""}</div>
-      <div class="lead-stage">${lead.Stage || ""}</div>
-      <div class="lead-source">${lead.Source || ""}</div>
-      <span class="status-badge" style="background:${color}">${lead.Status || ""}</span>
+      <div class="field">
+        <div class="field-label">Driver Name</div>
+        <div class="field-value">${lead.DriverName || "(No name)"}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Contact Number</div>
+        <div class="field-value">${lead.ContactNumber || "-"}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Email</div>
+        <div class="field-value">${lead.Email || "-"}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Stage</div>
+        <div class="field-value">${lead.Stage || "-"}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Source</div>
+        <div class="field-value">${lead.Source || "-"}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Status</div>
+        <span class="status-badge" style="background:${color}">${lead.Status || ""}</span>
+      </div>
     `;
-    row.onclick = () => alert("Lead detail panel comes in the next step: " + lead.RecordID);
+    row.onclick = () => alert("Lead detail panel comes in a later step: " + lead.RecordID);
     container.appendChild(row);
   });
+}
+
+function openAddModal() {
+  document.getElementById("addModal").style.display = "flex";
+}
+function closeAddModal() {
+  document.getElementById("addModal").style.display = "none";
+}
+
+function submitAddLead() {
+  const payload = {
+    action: "addLead",
+    DriverName: document.getElementById("f_name").value,
+    ContactNumber: document.getElementById("f_phone").value,
+    Email: document.getElementById("f_email").value,
+    Status: document.getElementById("f_status").value,
+    Stage: document.getElementById("f_stage").value,
+    Source: document.getElementById("f_source").value,
+    PSVLicence: document.getElementById("f_psv").value,
+    OwnCar: document.getElementById("f_car").value,
+    AddedMethod: "Manual"
+  };
+
+  if (!payload.DriverName) {
+    alert("Please enter a driver name.");
+    return;
+  }
+
+  fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  })
+  .then(res => res.json())
+  .then(result => {
+    if (result.success) {
+      closeAddModal();
+      // clear form
+      document.getElementById("f_name").value = "";
+      document.getElementById("f_phone").value = "";
+      document.getElementById("f_email").value = "";
+      document.getElementById("f_psv").value = "";
+      document.getElementById("f_car").value = "";
+      loadLeads();
+    } else {
+      alert("Error saving lead: " + (result.error || "Unknown error"));
+    }
+  })
+  .catch(err => alert("Network error: " + err));
 }
 
 document.getElementById("statusFilter").addEventListener("change", renderLeads);
