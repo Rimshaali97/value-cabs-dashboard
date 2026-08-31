@@ -47,6 +47,8 @@
   .status-badge {
     padding: 3px 10px; border-radius: 12px; font-size: 12px; color: white; font-weight: bold; display: inline-block;
   }
+  .reminder-pending-badge { background: #ea4335; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+  .reminder-done-badge { background: #00b050; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
   #loading { color: #888; margin-bottom: 10px; }
 
   .modal-overlay {
@@ -78,6 +80,7 @@
 
   .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; margin-bottom: 10px; }
   .action-row { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+  .section-header { font-weight: bold; font-size: 14px; padding: 10px 0; border-top: 1px solid #eee; }
   .collapsible-header {
     display: flex; justify-content: space-between; align-items: center;
     cursor: pointer; padding: 10px 0; border-top: 1px solid #eee; font-weight: bold; font-size: 14px;
@@ -88,6 +91,8 @@
   .log-time { color: #999; font-size: 11px; }
   .comment-box { display: flex; gap: 8px; margin-top: 8px; }
   .comment-box input { flex: 1; }
+  .reminder-line { font-size: 13px; padding: 6px 0; border-bottom: 1px dashed #eee; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+  .reminder-line:hover { background: #fafafa; }
 
   #calendarEl { background: white; padding: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
   .reschedule-box { border: 1px dashed #ccc; border-radius: 8px; padding: 12px; margin-top: 12px; display: none; }
@@ -267,7 +272,7 @@
   </div>
 </div>
 
-<!-- Reminder Detail / Popup Modal (from calendar or Calls Due Today) -->
+<!-- Reminder Detail / Popup Modal (from calendar, Calls Due Today, or lead detail) -->
 <div class="modal-overlay" id="reminderDetailModal">
   <div class="modal-box" id="reminderDetailContent">
     Loading...
@@ -294,6 +299,7 @@ let allReminders = [];
 let currentDetailId = null;
 let currentDetailName = "";
 let currentReminderId = null;
+let reminderReturnsToLeadDetail = false;
 let calendar = null;
 
 function safeText(val) {
@@ -309,8 +315,6 @@ function getTodayLocalString() {
   return y + "-" + m + "-" + day;
 }
 
-// Handles both a clean "YYYY-MM-DDTHH:MM" string AND, defensively, cases where
-// Sheets may have still stored/returned it as a real date/time value.
 function normalizeDateTimeStr(val) {
   const str = safeText(val);
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(str)) return str.substring(0, 16);
@@ -461,7 +465,7 @@ function openDetail(id) {
         return;
       }
       currentDetailName = safeText(data.lead.DriverName);
-      renderDetail(data.lead, data.history, data.comments);
+      renderDetail(data.lead, data.history, data.comments, data.reminders || []);
     })
     .catch(err => {
       document.getElementById("detailContent").innerHTML = "Network error: " + err;
@@ -473,9 +477,10 @@ function closeDetail() {
   loadLeads();
 }
 
-function renderDetail(lead, history, comments) {
+function renderDetail(lead, history, comments, reminders) {
   const color = statusColors[lead.Status] || "#cccccc";
   const latestComment = comments.length > 0 ? comments[0] : null;
+  const earlierComments = comments.slice(1);
 
   const statusOptsHtml = statusOptions.map(s =>
     `<option value="${s}" ${s === lead.Status ? "selected" : ""}>${s}</option>`).join("");
@@ -484,6 +489,18 @@ function renderDetail(lead, history, comments) {
   const sourceListVals = ["Walk-in","Reception","Website","META","Referral","Other"];
   const sourceOptsHtml = sourceListVals.map(s =>
     `<option value="${s}" ${s === lead.Source ? "selected" : ""}>${s}</option>`).join("");
+
+  const remindersHtml = reminders.length === 0
+    ? "<p style='color:#999; font-size:13px;'>No reminders set for this lead.</p>"
+    : reminders.map(r => {
+        const badge = r.Completed === "Yes"
+          ? `<span class="reminder-done-badge">Done</span>`
+          : `<span class="reminder-pending-badge">Pending</span>`;
+        return `<div class="reminder-line" onclick="openReminderDetail('${r.ReminderID}', true)">
+          <span>${formatDateTimeReadable(r.DateTime)} — ${safeText(r.Note) || "(no note)"}</span>
+          ${badge}
+        </div>`;
+      }).join("");
 
   document.getElementById("detailContent").innerHTML = `
     <h2><span id="d_name_display">${safeText(lead.DriverName) || "(No name)"}</span> <span class="status-badge" style="background:${color}">${safeText(lead.Status)}</span></h2>
@@ -528,14 +545,15 @@ function renderDetail(lead, history, comments) {
       <button class="btn btn-small btn-reminder" onclick="openReminderModal()">⏰ Add Reminder</button>
     </div>
 
-    <div class="collapsible-header" onclick="toggleCollapse('commentsBody')">
-      <span>💬 Comments (${comments.length})</span><span>▾</span>
-    </div>
-    <div class="collapsible-body open" id="commentsBody">
+    <div class="section-header">⏰ Reminders (${reminders.length})</div>
+    <div>${remindersHtml}</div>
+
+    <div class="section-header">💬 Comments (${comments.length})</div>
+    <div>
       ${latestComment ? `<div class="log-entry"><div class="log-time">${new Date(latestComment.Timestamp).toLocaleString()}</div>${safeText(latestComment.Text)}</div>` : "<p style='color:#999; font-size:13px;'>No comments yet.</p>"}
-      ${comments.length > 1 ? `<div style="font-size:12px; color:#2563eb; cursor:pointer;" onclick="toggleCollapse('allComments')">Show ${comments.length - 1} earlier comment(s)</div>` : ""}
+      ${earlierComments.length > 0 ? `<div style="font-size:12px; color:#2563eb; cursor:pointer; margin-top:4px;" onclick="toggleCollapse('allComments')">Show ${earlierComments.length} earlier comment(s)</div>` : ""}
       <div class="collapsible-body" id="allComments">
-        ${comments.slice(1).map(c => `<div class="log-entry"><div class="log-time">${new Date(c.Timestamp).toLocaleString()}</div>${safeText(c.Text)}</div>`).join("")}
+        ${earlierComments.map(c => `<div class="log-entry"><div class="log-time">${new Date(c.Timestamp).toLocaleString()}</div>${safeText(c.Text)}</div>`).join("")}
       </div>
       <div class="comment-box">
         <input type="text" id="newCommentText" placeholder="Add a comment...">
@@ -650,7 +668,7 @@ function submitReminder() {
       document.getElementById("r_time").value = "";
       document.getElementById("r_note").value = "";
       loadReminders();
-      openDetail(currentDetailId); // refresh history to show the new reminder log
+      openDetail(currentDetailId);
     } else {
       alert("Error adding reminder: " + (result.error || "Unknown error"));
     }
@@ -691,7 +709,7 @@ function renderCalendar() {
     displayEventTime: true,
     events: events,
     eventClick: function(info) {
-      openReminderDetail(info.event.id);
+      openReminderDetail(info.event.id, false);
     }
   });
   calendar.render();
@@ -742,7 +760,7 @@ function renderCallsToday() {
     const btnOpen = document.createElement("button");
     btnOpen.className = "btn btn-small";
     btnOpen.textContent = "Open Reminder";
-    btnOpen.onclick = () => openReminderDetail(r.ReminderID);
+    btnOpen.onclick = () => openReminderDetail(r.ReminderID, false);
     tdActions.appendChild(btnOpen);
 
     tr.appendChild(tdActions);
@@ -750,10 +768,11 @@ function renderCallsToday() {
   });
 }
 
-// ---------- REMINDER DETAIL POPUP (used by Calendar + Calls Due Today) ----------
+// ---------- REMINDER DETAIL POPUP (used by Calendar, Calls Due Today, Lead Detail) ----------
 
-function openReminderDetail(reminderId) {
+function openReminderDetail(reminderId, fromLeadDetail) {
   currentReminderId = reminderId;
+  reminderReturnsToLeadDetail = !!fromLeadDetail;
   const r = allReminders.find(x => x.ReminderID === reminderId);
   if (!r) { alert("Reminder not found."); return; }
 
@@ -801,6 +820,9 @@ function openReminderDetail(reminderId) {
 
 function closeReminderDetail() {
   document.getElementById("reminderDetailModal").style.display = "none";
+  if (reminderReturnsToLeadDetail && currentDetailId) {
+    openDetail(currentDetailId);
+  }
 }
 
 function toggleReschedule() {
